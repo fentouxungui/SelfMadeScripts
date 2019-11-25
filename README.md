@@ -2,15 +2,16 @@
 Scripts used in My lab!
 
 ##  AtacSeqPipeline-SE.sh
-This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put all your uncompressed fastq files in a directory named 'fastq'! put ATAC-Pipeline-SE-Data.sh under the same directory with fastq dir.
+This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put all your uncompressed fastq files in a directory named 'fastq'! put AtacSeqPipeline-SE.sh under the same directory with fastq dir.
 
 **using**
 
-bash atac.sh \
--i /path/to/drosophlia/Bowtie2Index/genome \
--b /path/to/dm6-blacklist.v2.bed \
--o ATAC-Pipeline
--o: output folder name.
+``` sh
+bash AtacSeqPipeline-SE.sh \
+  -i /path/to/drosophlia/Bowtie2Index/genome \
+  -b /path/to/dm6-blacklist.v2.bed \
+  -o: output folder name.
+```
 
 ## Chipseeker.r
 For Drosophlia!
@@ -19,7 +20,8 @@ output: plots(feature distribution, DistributionRelativeToTSS, GO-BP, KEGG), Ann
 
 **using**
 
+``` sh
 ./chipseeker.r -p xxx.narrowPeak \
                -s xxx.summits.bed \
                -n prefix
-               
+```      
