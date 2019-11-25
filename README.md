@@ -2,7 +2,7 @@
 Scripts used in My lab!
 
 ##  AtacSeqPipeline-SE.sh
-This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put all your uncompressed fastq files in a directory named 'fastq'! put AtacSeqPipeline-SE.sh under the same directory with fastq dir.
+This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put all your uncompressed fastq files in a directory named 'fastq'! put ``AtacSeqPipeline-SE.sh`` under the same directory with fastq dir.
 
 **using**
 
