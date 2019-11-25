@@ -24,6 +24,8 @@ output: plots(feature distribution, DistributionRelativeToTSS, GO-BP, KEGG), Ann
 
 **using**
 
+Before using, pleas change the Rscript PATH is shebang: `` which Rscript``.
+
 ``` sh
 ./chipseeker.r -p xxx.narrowPeak \
                -s xxx.summits.bed \
