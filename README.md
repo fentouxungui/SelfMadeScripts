@@ -1,4 +1,5 @@
 # Scripts
+
 Scripts used in My lab!
 
 ##  AtacSeqPipeline-SE.sh
@@ -14,8 +15,11 @@ bash AtacSeqPipeline-SE.sh \
 ```
 
 ## Chipseeker.r
+
 For Drosophlia!
+
 input: MACS2 opuput (narrowpeaks and summits.bed)
+
 output: plots(feature distribution, DistributionRelativeToTSS, GO-BP, KEGG), Annotated peaks, extracted peaks for Homer(downstream Motif analysis)
 
 **using**
