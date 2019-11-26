@@ -31,3 +31,7 @@ Before using, pleas change the Rscript PATH is shebang: `` which Rscript``.
                -s xxx.summits.bed \
                -n prefix
 ```      
+
+## shinyapp-scRNAseq-DataSearch.R
+
+This is the R code for building the Fly Gut EEs's scRNAseq Data Website: https://xilab.shinyapps.io/database/, where you can search the genes expression pattern. Thanks to https://www.shinyapps.io/ for holding this app.
