@@ -11,7 +11,7 @@ This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put 
 bash AtacSeqPipeline-SE.sh \
   -i /path/to/drosophlia/Bowtie2Index/genome \
   -b /path/to/dm6-blacklist.v2.bed \
-  -o: output folder name.
+  -o output-folder-name
 ```
 
 ## Chipseeker.r
