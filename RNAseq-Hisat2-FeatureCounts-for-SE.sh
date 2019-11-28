@@ -203,7 +203,7 @@ echo "################## Step 5: RNAseq QC with RSeQC ####################"
 echo "####################################################################"
 cd ../
 mkdir 5_RSeQC_report
-cd ../3_aligned_sequences
+cd 3_aligned_sequences
 
 ls *sorted.bam | while read id;
 do
