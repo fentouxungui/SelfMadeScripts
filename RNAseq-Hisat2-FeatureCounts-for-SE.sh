@@ -191,7 +191,7 @@ cd 3_aligned_sequences
 ls *sorted.bam | while read id;
 do
 bamCoverage -b ${id} \
--o ${id%.sorted.bam}.RPKM.bw \
+-o ../4_bw_files/${id%.sorted.bam}.RPKM.bw \
 -of bigwig \
 -p $threads \
 --normalizeUsing RPKM
