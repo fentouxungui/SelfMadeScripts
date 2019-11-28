@@ -20,6 +20,8 @@ Pipeline: Hisat2 + FeatureCounts + RSeQC + MultiQC, more info please refer to [t
 
 Suitable for Single end data! put all your compressed fastq files in a directory named 'fastq'! put ``RNAseq-Hisat2-FeatureCounts-for-SE.sh`` under the same directory with fastq dir.
 
+Attention: Because Hisat2 do not support python3.7, I installed Hisat2 in Conda environment python2.7. So before using this script, Please change ``conda activate python2.7`` to your hisat2 conda environment!
+
 **using**
 
 ``` sh
