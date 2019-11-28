@@ -14,6 +14,21 @@ bash AtacSeqPipeline-SE.sh \
   -o output-folder-name
 ```
 
+## RNAseq-Hisat2-FeatureCounts-for-SE.sh
+
+Pipeline: Hisat2 + FeatureCounts + RSeQC + MultiQC, more info please refer to [twbattaglia/RNAseq-workflow](https://github.com/twbattaglia/RNAseq-workflow)
+
+Suitable for Single end data! put all your compressed fastq files in a directory named 'fastq'! put ``RNAseq-Hisat2-FeatureCounts-for-SE.sh`` under the same directory with fastq dir.
+
+**using**
+
+``` sh
+sh RNAseq-Hisat2-FeatureCounts-for-SE.sh \
+-i /data0/reference/hisat2_index/D.melanogaster.BDGP6.Genome/bdgp6/genome \
+-b /data0/reference/ensembl/Drosophila_melanogaster/BDGP6/Annotation/Archives/archive-2015-07-23-16-41-33/Genes/genes.bed \
+-g /data0/reference/ensembl/Drosophila_melanogaster/BDGP6/Annotation/Archives/archive-2015-07-23-16-41-33/Genes/genes.gtf \
+```
+
 ## Chipseeker.r
 
 For Drosophlia!
