@@ -252,4 +252,5 @@ echo "Congratulations! Whole processs finished! "
 echo "RNA-Seq Pipline Finished At:"
 time=$(date "+%Y-%m-%d %H:%M:%S")
 echo "${time}"
-echo "####################################################################"
+trap : 0
+echo >&2 '####################################################################'
