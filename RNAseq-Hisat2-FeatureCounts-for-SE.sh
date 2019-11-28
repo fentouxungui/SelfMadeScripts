@@ -148,6 +148,9 @@ echo "####################################################################"
 cd ../results
 mkdir 3_aligned_sequences
 cd 2_trimmed_output
+
+conda_path=$(which conda)
+source ${conda_path%bin/conda}etc/profile.d/conda.sh
 conda activate python2.7
 
 ls *trimmed.fq.gz | while read id;
