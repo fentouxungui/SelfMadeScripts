@@ -14,21 +14,29 @@ bash AtacSeqPipeline-SE.sh \
   -o output-folder-name
 ```
 
-## RNAseq-Hisat2-FeatureCounts-for-SE.sh
+## RNAseq-Hisat2/STAR-FeatureCounts-for-SE.sh
 
-Pipeline: Hisat2 + FeatureCounts + RSeQC + MultiQC, more info please refer to [twbattaglia/RNAseq-workflow](https://github.com/twbattaglia/RNAseq-workflow)
+Pipeline-1: Hisat2 + FeatureCounts + RSeQC + MultiQC
 
-Suitable for Single end data! put all your compressed fastq files in a directory named 'fastq'! put ``RNAseq-Hisat2-FeatureCounts-for-SE.sh`` under the same directory with fastq dir.
+Pipeline-2: STAR + FeatureCounts + RSeQC + MultiQC
 
-Attention: Because Hisat2 do not support python3.7, I installed Hisat2 in Conda environment python2.7. So before using this script, Please change ``conda activate python2.7`` to your hisat2 conda environment!
+more info please refer to [twbattaglia/RNAseq-workflow](https://github.com/twbattaglia/RNAseq-workflow)
+
+Suitable for Single end data! put all your compressed fastq files in a directory named 'fastq'! put ``RNAseq-Hisat2-FeatureCounts-for-SE.sh`` or ``RNAseq-STAR-FeatureCounts-for-SE.sh`` under the same directory with fastq dir.
+
+**Attention: **
+
+1. for Pipeline-1: Because Hisat2 do not support python3.7, I installed Hisat2 in Conda environment python2.7. So before using this script, Please change ``conda activate python2.7`` to your hisat2 conda environment!
+
+2. Pipeline-2: less than 20 fastq files are used for a computer with 48 threads!
 
 **using**
 
 ``` sh
 sh RNAseq-Hisat2-FeatureCounts-for-SE.sh \
--i /data0/reference/hisat2_index/D.melanogaster.BDGP6.Genome/bdgp6/genome \
--b /data0/reference/ensembl/Drosophila_melanogaster/BDGP6/Annotation/Archives/archive-2015-07-23-16-41-33/Genes/genes.bed \
--g /data0/reference/ensembl/Drosophila_melanogaster/BDGP6/Annotation/Archives/archive-2015-07-23-16-41-33/Genes/genes.gtf \
+-i /path/to/hisat2_index_or_STAR_index \
+-b /path/to/genes.bed \
+-g /path/to/genes.gtf \
 ```
 
 ## Chipseeker.r
