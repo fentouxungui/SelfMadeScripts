@@ -187,6 +187,28 @@ bamCoverage -b ${id} \
 done
 wait
 
+
+echo "####################################################################"
+echo "################## Step 5: RNAseq QC with RSeQC ####################"
+echo "####################################################################"
+cd ../
+mkdir 5_RSeQC_report
+cd 3_aligned_STAR
+
+ls *.bam | while read id;
+do
+bam_stat.py \
+-i ${id} \
+> ../5_RSeQC_report/${id%.bam}.RSeQC.bam_stat.txt &
+done
+
+ls *.bam | while read id;
+do
+read_distribution.py \
+-i ${id} -r $genes_bed \
+> ../5_RSeQC_report/${id%.bam}.RSeQC.reads_distribution.txt &
+done
+
 num_bam=`ls -l *.bam | wc -l`
 
 if [ $num_bam -ge 3 ]
@@ -227,71 +249,8 @@ then
         --whatToPlot heatmap --colorMap RdYlBu --plotNumbers \
         -o heatmap_PearsonCorr_readCounts.png   \
         --outFileCorMatrix PearsonCorr_readCounts.tab
-fi &
+fi
 
-echo "####################################################################"
-echo "################## Step 5: RNAseq QC with RSeQC ####################"
-echo "####################################################################"
-cd ../
-mkdir 5_RSeQC_report
-cd 3_aligned_STAR
-
-ls *.bam | while read id;
-do
-bam_stat.py \
--i ${id} \
-> ../5_RSeQC_report/${id%.bam}.RSeQC.bam_stat.txt &
-done
-
-ls *.bam | while read id;
-do
-read_distribution.py \
--i ${id} -r $genes_bed \
-> ../5_RSeQC_report/${id%.bam}.RSeQC.reads_distribution.txt &
-done
-
-ls *.bam | while read id;
-do
-echo ${id} >> bam.files.txt
-done
-
-geneBody_coverage.py -r $genes_bed \
--i bam.files.txt -o ../5_RSeQC_report/GeneBodyCoverage &
-
-
-task=bam_stat.py
-while ps -ef | grep $task | grep -v 'grep'; do
-sleep 10
-done
-echo "bam_stat.py finished! "
-
-
-task=read_distributi
-while ps -ef | grep $task | grep -v 'grep'; do
-sleep 10
-done
-echo "read_distributiion.py finished! "
-
-
-task=geneBody_cove
-while ps -ef | grep $task | grep -v 'grep'; do
-sleep 10
-done
-echo "read_distributiion.py finished! "
-
-rm bam.files.txt
-
-task=multiBamSummary
-while ps -ef | grep $task | grep -v 'grep'; do
-sleep 10
-done
-echo "multiBamSummary finished! "
-
-task=plotCorrelation
-while ps -ef | grep $task | grep -v 'grep'; do
-sleep 10
-done
-echo "plotCorrelation finished! "
 
 echo "####################################################################"
 echo "######## Step 6: Summarizing Gene Counts with featureCounts ########"
