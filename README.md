@@ -5,7 +5,7 @@ Scripts used in My lab!
 ##  AtacSeqPipeline-SE.sh
 This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put all your uncompressed fastq files in a directory named 'fastq'! put ``AtacSeqPipeline-SE.sh`` under the same directory with fastq dir.
 
-**using**
+**using**:
 
 ``` sh
 bash AtacSeqPipeline-SE.sh \
@@ -30,7 +30,7 @@ Suitable for Single end data! put all your compressed fastq files in a directory
 
 2. Pipeline-2: less than 20 fastq files are used for a computer with 48 threads!
 
-**using**
+**using**:
 
 ``` sh
 sh RNAseq-Hisat2-FeatureCounts-for-SE.sh \
@@ -47,7 +47,7 @@ input: MACS2 opuput (narrowpeaks and summits.bed)
 
 output: plots(feature distribution, DistributionRelativeToTSS, GO-BP, KEGG), Annotated peaks, extracted peaks for Homer(downstream Motif analysis)
 
-**using**
+**using**:
 
 Before using, pleas change the Rscript PATH in shebang: `` which Rscript``.
 
