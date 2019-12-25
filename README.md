@@ -4,24 +4,31 @@ Scripts used in My lab!
 
 ## ATACseq/Cut&Tag
 ###  AtacSeqPipeline-SE.sh
-This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put all your uncompressed fastq files in a directory named 'fastq'! put ``AtacSeqPipeline-SE.sh`` under the same directory with fastq dir.
+This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put all your uncompressed fastq files in a directory named 'fastq'! put ``AtacSeqPipeline-SE.sh`` under the same directory with fastq dir. for example:  ``sample1.fastq, sample2.fastq...`` .
 
 **using**:
 
 ``` sh
 bash AtacSeqPipeline-SE.sh \
-  -i /path/to/drosophlia/Bowtie2Index/genome \
-  -b /path/to/dm6-blacklist.v2.bed \
+  -i /path/to/Bowtie2Index/genome \
+  -b /path/to/blacklist.bed \
+  -j threads \
+  -m minimal-reads-length-for-cutadapt \
   -o output-folder-name
 ```
 ###  ATACseq-PE.sh
+all the paired reads should put into a same dir, make sure "R1" and "R2" is the only difference for a paired compressed fastqs.
+such as ``sample1_R1.fastq.gz`` , ``sample1_R2.fastq.gz``,``sample2_R1.fastq.gz`` , ``sample2_R2.fastq.gz``...
+outputs： in the ``multiqc`` dir, you can find the QC report for each step!
 **using**:
 
 ``` sh
-bash AtacSeqPipeline-SE.sh \
-  -i /path/to/drosophlia/Bowtie2Index/genome \
-  -b /path/to/dm6-blacklist.v2.bed \
-  -f fastqdir \
+bash ATACseq-PE.sh \
+  -i /path/to/Bowtie2Index/genome \
+  -b /path/to/blacklist.bed \
+  -f fastq-folder-name \
+  -j threads \
+  -m minimal-reads-length-for-cutadapt \
   -o output-folder-name
 ```
 ### Chipseeker.r
