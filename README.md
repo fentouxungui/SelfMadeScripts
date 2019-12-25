@@ -7,7 +7,7 @@ Scripts used in My lab!
 This script is a simple atacseq-pipeline for Single-end data of Drosophlia! put all your uncompressed fastq files in a directory named 'fastq'! put ``AtacSeqPipeline-SE.sh`` under the same directory with fastq dir. for example:  ``sample1.fastq, sample2.fastq...`` .
 
 **using**:
-
+``bash AtacSeqPipeline-SE.sh -h`` will print the usage.
 ``` sh
 bash AtacSeqPipeline-SE.sh \
   -i /path/to/Bowtie2Index/genome \
@@ -21,7 +21,7 @@ all the paired reads should put into a same dir, make sure "R1" and "R2" is the 
 such as ``sample1_R1.fastq.gz`` , ``sample1_R2.fastq.gz``,``sample2_R1.fastq.gz`` , ``sample2_R2.fastq.gz``...
 outputs： in the ``multiqc`` dir, you can find the QC report for each step!
 **using**:
-
+``bash ATACseq-PE.sh -h`` will print the usage.
 ``` sh
 bash ATACseq-PE.sh \
   -i /path/to/Bowtie2Index/genome \
