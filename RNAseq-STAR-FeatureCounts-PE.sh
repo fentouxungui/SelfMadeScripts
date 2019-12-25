@@ -167,7 +167,7 @@ cd 3_aligned_STAR
 star_path=$(pwd)
 cd ../2_trimmed_output
 
-ls *val_1.fq.gz | grep "_R1_" | while read id;
+ls *val_1.fq.gz | grep "R1" | while read id;
 do
 tmp=${id/R1/R2}
 STAR \
