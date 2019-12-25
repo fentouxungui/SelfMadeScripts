@@ -56,13 +56,14 @@ Before using, pleas change the Rscript PATH in shebang: `` which Rscript``.
 ```      
 
 ## RNAseq
+
+more info please refer to [twbattaglia/RNAseq-workflow](https://github.com/twbattaglia/RNAseq-workflow)
+
 ### RNAseq-Hisat2/STAR-FeatureCounts-for-SE.sh
 
 Pipeline-1: Hisat2 + FeatureCounts + RSeQC + MultiQC
 
 Pipeline-2: STAR + FeatureCounts + RSeQC + MultiQC
-
-more info please refer to [twbattaglia/RNAseq-workflow](https://github.com/twbattaglia/RNAseq-workflow)
 
 Suitable for Single end data! put all your compressed fastq files in a directory named 'fastq'! put ``RNAseq-Hisat2-FeatureCounts-for-SE.sh`` or ``RNAseq-STAR-FeatureCounts-for-SE.sh`` under the same directory with fastq dir.
 
@@ -76,9 +77,26 @@ Suitable for Single end data! put all your compressed fastq files in a directory
 
 ``` sh
 sh RNAseq-Hisat2-FeatureCounts-for-SE.sh \
--i /path/to/hisat2_index_or_STAR_index \
+-i /path/to/hisat2_indes-or-STAR_index \
 -b /path/to/genes.bed \
 -g /path/to/genes.gtf \
+```
+
+### RNAseq-STAR-FeatureCounts-PE.sh
+
+put all your paired reads into same dir, file names should like: ``sample1_R1.fastq.gz`` , ``sample1_R2.fastq.gz``,``sample2_R1.fastq.gz`` , ``sample2_R2.fastq.gz``...
+
+**using**:
+
+``` sh
+sh RNAseq-Hisat2-FeatureCounts-for-SE.sh \
+-f /path/to/fastqDir \
+-j threads \
+-m minimal-reads-length-for-cutadapt \
+-i /path/to/hisat2_indes-or-STAR_index \
+-b /path/to/genes.bed \
+-g /path/to/genes.gtf \
+-o output-folder-name
 ```
 
 ## shinyapp-scRNAseq-DataSearch.R
