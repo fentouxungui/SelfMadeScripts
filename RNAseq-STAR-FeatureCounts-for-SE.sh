@@ -33,7 +33,7 @@ print_usage_and_exit(){
 
 while getopts ":t:m:i:b:g:h:" opt; do
     case $opt in
-        j)
+        t)
             threads="$OPTARG"
             echo "-j <threads used> = $threads"
             ;;
