@@ -32,11 +32,11 @@ print_usage_and_exit(){
     exit 1
 }
 
-while getopts ":f:j:t:o:m:i:b:g:h:" opt; do
+while getopts ":f:j:o:m:i:b:g:h:" opt; do
     case $opt in
         f)
             fastq="$OPTARG"
-            echo "-f <fastq dir> = $fastq"
+            echo "-d <fastq dir> = $fastq"
             ;;
         o)
             output="$OPTARG"
@@ -147,7 +147,7 @@ cd 2_trimmed_output
 abpath=$(pwd)
 cd ../../${fastq}
 
-ls *.fastq.gz | grep '_R1_'| while read id;
+ls *.fastq.gz | grep 'R1'| while read id;
 do
 trim_galore \
 --cores $threads \
@@ -167,7 +167,7 @@ cd 3_aligned_STAR
 star_path=$(pwd)
 cd ../2_trimmed_output
 
-ls *val_1.fq.gz | grep "R1" | while read id;
+ls *val_1.fq.gz | grep "_R1_" | while read id;
 do
 tmp=${id/R1/R2}
 STAR \
