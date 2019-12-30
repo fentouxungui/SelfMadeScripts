@@ -28,7 +28,7 @@ output=results
 
 # Augument Parsing
 print_usage_and_exit(){
-    echo "Usage: $0 [-f <path of fastq files> ] [-o <output dir name default: results>] [-t <number of threads> = 24 default] [-m <Galore minimum length> =$length] -i <star index> =path/to/STAR/index -b <genes bed file> =path/to/genes.bed -g <genes gtf file> =path/to/genes.gtf "
+    echo "Usage: $0 [-f <path of fastq files> ] [-o <output dir name default: results>] [-j <number of threads> = 24 default] [-m <Galore minimum length> =$length] -i <star index> =path/to/STAR/index -b <genes bed file> =path/to/genes.bed -g <genes gtf file> =path/to/genes.gtf "
     exit 1
 }
 
@@ -36,7 +36,7 @@ while getopts ":f:j:t:o:m:i:b:g:h:" opt; do
     case $opt in
         f)
             fastq="$OPTARG"
-            echo "-d <fastq dir> = $fastq"
+            echo "-f <fastq dir> = $fastq"
             ;;
         o)
             output="$OPTARG"
