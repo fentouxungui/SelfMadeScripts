@@ -27,15 +27,15 @@ length=25
 
 # Augument Parsing
 print_usage_and_exit(){
-    echo "Usage: $0 [-t <number of threads> =24 default] [-m <Galore minimum length> =$cutadapt_m] -i <star index> =path/to/STAR/index -b <genes bed file> =path/to/genes.bed -g <genes gtf file> =path/to/genes.gtf "
+    echo "Usage: $0 [-j <number of threads> =24 default] [-m <Galore minimum length> =$length] -i <star index> =path/to/STAR/index -b <genes bed file> =path/to/genes.bed -g <genes gtf file> =path/to/genes.gtf "
     exit 1
 }
 
-while getopts ":t:m:i:b:g:h:" opt; do
+while getopts ":j:t:m:i:b:g:h:" opt; do
     case $opt in
-        t)
+        j)
             threads="$OPTARG"
-            echo "-t <threads used> = $threads"
+            echo "-j <threads used> = $threads"
             ;;
         m)
             length="$OPTARG"
@@ -110,7 +110,7 @@ echo ""
 echo "####################################################################"
 echo "########## Step 1. Analysing Sequence Quality with FastQC ##########"
 echo "####################################################################"
-mkdir results
+mkdir -p results
 cd results
 mkdir 1_initial_qc
 cd ../fastq
@@ -118,15 +118,14 @@ cd ../fastq
 fastqc *.gz \
 -t $threads \
 -o ../results/1_initial_qc/ \
---noextract \
-${id} 
+--noextract
 wait
 
 echo "####################################################################"
 echo "##### Step 2:  Removing Low Quality Sequences with Trim_Galore #####"
 echo "####################################################################"
 cd ../results
-mkdir 2_trimmed_output
+mkdir -p 2_trimmed_output
 cd ../fastq
 
 ls *.fastq.gz | while read id;
@@ -144,7 +143,7 @@ echo "####################################################################"
 echo "########### Step 3: Aligning to Genome with STAR-aligner ###########"
 echo "####################################################################"
 cd ../results
-mkdir 3_aligned_STAR
+mkdir -p 3_aligned_STAR
 cd 3_aligned_STAR
 star_path=$(pwd)
 cd ../2_trimmed_output
@@ -174,7 +173,7 @@ echo "####################################################################"
 echo "########## Step 4:  Generate BW files with bamCoverage #############"
 echo "####################################################################"
 cd ../
-mkdir 4_bw_files
+mkdir -p 4_bw_files
 cd 3_aligned_STAR
 
 ls *.bam | while read id;
@@ -192,7 +191,7 @@ echo "####################################################################"
 echo "################## Step 5: RNAseq QC with RSeQC ####################"
 echo "####################################################################"
 cd ../
-mkdir 5_RSeQC_report
+mkdir -p 5_RSeQC_report
 cd 3_aligned_STAR
 
 ls *.bam | while read id;
@@ -256,7 +255,7 @@ echo "####################################################################"
 echo "######## Step 6: Summarizing Gene Counts with featureCounts ########"
 echo "####################################################################"
 cd ../
-mkdir 6_final_counts
+mkdir -p 6_final_counts
 cd 3_aligned_STAR
 
 dirlist=$(ls -t ./*.bam | tr '\n' ' ')
@@ -275,7 +274,7 @@ echo "####################################################################"
 echo "######## Step 7: Generating analysis report with multiQC  ##########"
 echo "####################################################################"
 cd ../
-mkdir 7_multiQC
+mkdir -p 7_multiQC
 cd ../
 
 multiqc results \
