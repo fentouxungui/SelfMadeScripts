@@ -35,7 +35,7 @@ while getopts ":t:m:i:b:g:h:" opt; do
     case $opt in
         t)
             threads="$OPTARG"
-            echo "-j <threads used> = $threads"
+            echo "-t <threads used> = $threads"
             ;;
         m)
             length="$OPTARG"
