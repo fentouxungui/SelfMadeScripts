@@ -16,26 +16,26 @@ trap 'abort' 0
 
 set -e
 
-##############################################################
+################################################################
 ## It assumes fastqc,trim_galore,hisat2,bedtools,samtools,RSeQC,
 ## featurecounts and multiQC are all available.
 ## We have tested this script on an Centos system.
-##############################################################
+################################################################
 
 threads=24
 length=25
 
 # Augument Parsing
 print_usage_and_exit(){
-    echo "Usage: $0 [-t <number of threads> =24 default] [-m <Galore minimum length> =$cutadapt_m] -i <hisat2 index> =path/to/hisat2/index -b <genes bed file> =path/to/genes.bed -g <genes gtf file> =path/to/genes.gtf "
+    echo "Usage: $0 [-j <number of threads> =24 default] [-m <Galore minimum length> =$length -i <hisat2 index> =path/to/hisat2/index -b <genes bed file> =path/to/genes.bed -g <genes gtf file> =path/to/genes.gtf "
     exit 1
 }
 
-while getopts ":t:m:i:b:g:h:" opt; do
+while getopts ":j:m:i:b:g:h:" opt; do
     case $opt in
-        t)
+        j)
             threads="$OPTARG"
-            echo "-t <threads used> = $threads"
+            echo "-j <threads used> = $threads"
             ;;
         m)
             length="$OPTARG"
@@ -191,7 +191,7 @@ cd 3_aligned_sequences
 ls *sorted.bam | while read id;
 do
 bamCoverage -b ${id} \
--o ../4_bw_files/${id%.sorted.bam}.RPKM.bw \
+-o ./4_bw_files/${id%.sorted.bam}.RPKM.bw \
 -of bigwig \
 -p $threads \
 --normalizeUsing RPKM
