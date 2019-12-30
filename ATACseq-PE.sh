@@ -41,7 +41,7 @@ print_usage_and_exit(){
 echo "****************"
 echo "***for SE data**"
 echo "****************"
-while getopts ":f:o:j:m:i:b:o:h:" opt; do
+while getopts ":f:o:j:m:i:b:h:" opt; do
     case $opt in
     	f)
             fastq="$OPTARG"
