@@ -79,7 +79,7 @@ Suitable for Single end data! put all your compressed fastq files in a directory
 sh RNAseq-Hisat2-FeatureCounts-for-SE.sh \
 -i /path/to/hisat2_indes-or-STAR_index \
 -b /path/to/genes.bed \
--g /path/to/genes.gtf \
+-g /path/to/genes.gtf
 ```
 
 ### RNAseq-STAR-FeatureCounts-PE.sh
