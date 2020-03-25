@@ -57,7 +57,7 @@ while getopts ":j:m:i:b:o:h:" opt; do
             ;;
         b)
             blacklist="$OPTARG"
-            echo "-b <blacklist bed file> = $balcklist"
+            echo "-b <blacklist bed file> = $blacklist"
             ;;
         h)
             print_usage_and_exit
