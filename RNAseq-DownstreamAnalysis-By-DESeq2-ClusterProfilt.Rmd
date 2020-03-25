@@ -1,11 +1,14 @@
 ---
-title: "Liu XC - RNAseq - R vs F"
+title: "Liu XC-6 sampls-RNAseq-R vs F"
 author: "Zhang Yongchao"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: html_document
 ---
 
-ENTREZID == NCBI GENE ID
+### Attention!
+######*************************
+######ENTREZID == NCBI GENE ID
+######*************************
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -37,7 +40,7 @@ suppressMessages(library(pathview))
 # Import gene counts table
 # skip first row (general command info)
 # make row names the gene identifiers
-countdata <- read.table("../6_final_counts/final_counts.txt", header = TRUE, skip = 1, row.names = 1)
+countdata <- read.table("../../6_final_counts/final_counts.txt", header = TRUE, skip = 1, row.names = 1)
 head(countdata)
 ```
 
@@ -55,6 +58,7 @@ countdata <- countdata[ ,c(-1:-5)]
 
 ```{r}
 # Make sure ID's are correct
+countdata <- countdata[,c("R2","R3","R4","F2","F3","F4")]
 head(countdata)
 ```
 
@@ -64,8 +68,8 @@ head(countdata)
 # Make metadata
 colnames(countdata)
 metadata <- data.frame(row.names = colnames(countdata),
-                       Group=c(rep("R",4),rep("F",4)),
-                       Replicate=c(paste("Rep",1:4,sep = ""),paste("Rep",1:4,sep="")),
+                       Group=c(rep("R",3),rep("F",3)),
+                       Replicate=c(paste("Rep",1:3,sep = ""),paste("Rep",1:3,sep="")),
                        sampleid=colnames(countdata))
 head(metadata)
 ```
@@ -182,7 +186,7 @@ ddsMat_rlog <- rlog(ddsMat, blind = FALSE)
 plotPCA(ddsMat_rlog, intgroup = "Group", ntop = 500) +
   theme_bw() + # remove default ggplot2 theme
   geom_point(size = 5) + # Increase point size
-  scale_y_continuous(limits = c(-40, 40)) + # change limits to fix figure dimensions
+  #scale_y_continuous(limits = c(-20, 20)) + # change limits to fix figure dimensions
   ggtitle(label = "Principal Component Analysis (PCA)", 
           subtitle = "Top 500 most variable genes") 
 ```
@@ -194,7 +198,8 @@ plotPCA(ddsMat_rlog, intgroup = "Group", ntop = 500) +
 #ddsMat_rlog <- rlog(ddsMat, blind = FALSE)
 
 # Gather 40 significant genes (by fdr) and make matrix
-mat <- assay(ddsMat_rlog[row.names(results_sig[order(results_sig$padj),])])[1:72, ]
+de.genes <- rownames(results)[which(results$padj < 0.05 & abs(results$log2FoldChange) > 2)]
+mat <- assay(ddsMat_rlog[de.genes, ])
 
 # Choose which column variables you want to annotate the columns by.
 annotation_col = data.frame(
@@ -206,19 +211,20 @@ annotation_col = data.frame(
 # Specify colors you want to annotate the columns by.
 ann_colors = list(
   Group = c(R = "lightblue", F = "darkorange"),
-  Replicate = c(Rep1 = "darkred", Rep2 = "forestgreen",Rep3 = "darkblue",Rep4 = "gray")
+  Replicate = c(Rep1 = "darkred", Rep2 = "forestgreen",Rep3 = "darkblue")
 )
 
 # Make Heatmap with pheatmap function.
 ## See more in documentation for customization
 pheatmap(mat = mat, 
-         color = colorRampPalette(brewer.pal(9, "YlOrBr"))(255), 
+         #color = colorRampPalette(brewer.pal(9, "YlOrBr"))(255), 
          scale = "row", # Scale genes to Z-score (how many standard deviations)
          annotation_col = annotation_col, # Add multiple annotations to the samples
          annotation_colors = ann_colors,# Change the default colors of the annotations
          fontsize = 6.5, # Make fonts smaller
          cellwidth = 55, # Make the cells wider
-         show_colnames = F)
+         show_colnames = T,
+         show_rownames = F)
 ```
 
 ### 9c. Volcano Plot
@@ -234,11 +240,11 @@ data <- data.frame(gene = row.names(results),
 data <- na.omit(data)
 
 # Color the points which are up or down
-## If fold-change > 0 and pvalue > 1.3 (Increased significant)
-## If fold-change < 0 and pvalue > 1.3 (Decreased significant)
-data <- mutate(data, color = case_when(data$lfc > 0 & data$pval > 1.3 ~ "Increased",
-                                       data$lfc < 0 & data$pval > 1.3 ~ "Decreased",
-                                       data$pval < 1.3 ~ "nonsignificant"))
+## If fold-change > 2 and pvalue > 1.3 (Increased significant)
+## If fold-change < -2 and pvalue > 1.3 (Decreased significant)
+data <- mutate(data, color = case_when(data$lfc > 2 & data$pval > 1.3 ~ "Increased (log2(FC) > 2)",
+                                       data$lfc < -2 & data$pval > 1.3 ~ "Decreased (log2(FC) < -2)",
+                                       data$lfc >= -2 |  data$lfc <= 2 | data$pval < 1.3 ~ "nonsignificant"))
 
 # Make a basic ggplot2 object with x-y values
 vol <- ggplot(data, aes(x = lfc, y = pval, color = color))
@@ -246,14 +252,16 @@ vol <- ggplot(data, aes(x = lfc, y = pval, color = color))
 # Add ggplot2 layers
 vol +   
   ggtitle(label = "Volcano Plot", subtitle = "Colored by fold-change direction") +
-  geom_point(size = 2.5, alpha = 0.8, na.rm = T) +
+  geom_point(size = 1.5, alpha = 0.8, na.rm = T) +
   scale_color_manual(name = "Directionality",
-                     values = c(Increased = "#008B00", Decreased = "#CD4F39", nonsignificant = "darkgray")) +
+                     values = c("Increased (log2(FC) > 2)"= "#008B00", "Decreased (log2(FC) < -2)" = "#CD4F39", "nonsignificant" = "darkgray")) +
   theme_bw(base_size = 14) + # change overall theme
   theme(legend.position = "right") + # change the legend
-  xlab(expression(log[2]("ProsIR" / "EE"))) + # Change X-Axis label
+  xlab(expression(log[2]("R" / "F"))) + # Change X-Axis label
   ylab(expression(-log[10]("adjusted p-value"))) + # Change Y-Axis label
   geom_hline(yintercept = 1.3, colour = "darkgrey") + # Add p-adj value cutoff line
+  geom_vline(xintercept = c(-2,2), colour = "darkgrey") + # Add p-adj value cutoff line
+  xlim(c(-10,10)) +
   scale_y_continuous(trans = "log1p") # Scale yaxis due to large p-values
 ```
 
@@ -312,11 +320,13 @@ head(gene_matrix)
 
 # choose upregulated genes or downregulated genes!
 #gene_matrix <- gene_matrix[gene_matrix > 0]
-#gene_matrix <- gene_matrix[gene_matrix > 0]
+#gene_matrix <- gene_matrix[gene_matrix < 0]
 ```
 ### 10b. Enrich genes using the Gene Onotlogy
 
 ```{r}
+gene_matrix <- gene_matrix[abs(gene_matrix) > 2] # filter DE genes，Attention!
+
 for (genegroup in c("total","upregulated","downregulated")) {
   if (genegroup == "total") {
     gene_matrix_filtered <- gene_matrix
@@ -336,12 +346,10 @@ for (genegroup in c("total","upregulated","downregulated")) {
   print(barplot(go_enrich, 
           drop = TRUE, 
           showCategory = 15, 
-          title = paste("GO Biological Process using",genegroup,"Genes",sep = " "),
+          title = paste("GO Biological Pathways using",genegroup,"Genes",sep = " "),
           font.size = 8))
   
-  write.csv(go_enrich,file = paste("GO-Biological-Process-using",genegroup,"Genes.csv",sep = "-"))
-  #write.csv(go_enrich,file = "go_enrich_results_using_upregulated_genes.csv")
-  #write.csv(go_enrich,file = "go_enrich_results_using_downregulated_genes.csv")
+  write.csv(go_enrich,file = paste("GO-Biological-Pathways-using",genegroup,"Genes.csv",sep = "-"))
 }
 
 ```
@@ -370,22 +378,17 @@ for (genegroup in c("total","upregulated","downregulated")) {
           title =  paste("KEGG Enrichment Pathways",genegroup,"Genes",sep = " "),
           font.size = 8))
   write.csv(kegg_enrich,file = paste("KEGG-Enrichment-Pathways",genegroup,"Genes.csv",sep = "-"))
+  
+  # Plotting KEGG Pathways
+  for (path_id in kegg_enrich@result$ID[kegg_enrich@result$p.adjust < 0.05]) {
+    suppressMessages(pathview(gene.data = gene_matrix_filtered, 
+           pathway.id = path_id, 
+           species = "mmu"))
+  }
 }
 ```
 
-## Step 11. Plotting KEGG Pathways (using total DEGs!)
-
-```{r}
-# Plot specific KEGG pathways (with fold change) 
-## pathway.id : KEGG pathway identifier
-for (path_id in kegg_enrich@result$ID[kegg_enrich@result$p.adjust < 0.05]) {
-  suppressMessages(pathview(gene.data = gene_matrix, 
-         pathway.id = path_id, 
-         species = "mmu"))
-}
-```
-
-## step 12, GSEA analysis
+## step 11. GSEA analysis
 
 ```{r}
 # export rnk list using ENSEMBL gene ids
@@ -405,9 +408,9 @@ geneList = sort(geneList, decreasing = TRUE)
 write.table(geneList,file = "RNAseq-GeneNameENTREZID-RankedBy-log2FoldChange.rnk",quote = FALSE,col.names = FALSE,sep = "\t")
 ```
 
-### 12.1 Using ClusterProfiler
+### 11.1 Using ClusterProfiler
 
-#### 12.1.1 GO
+#### 11.1.1 GO
 
 ```{r}
 ego2 <- gseGO(geneList     = geneList,
@@ -454,7 +457,7 @@ if (dim(ego3@result)[1] != 0) {
 ```
 
 
-#### 12.1.2 KEGG
+#### 11.1.2 KEGG
 
 ```{r}
 kk2 <- gseKEGG(geneList     = geneList,
@@ -473,7 +476,8 @@ if (dim(kk2@result)[1] != 0) {
   write.csv(kk2@result,file = "gseKEGG.csv")
 }
 ```
-#### 12.1.3  MSigDb analysis Only for Human Genes! 
+
+#### 11.1.3  MSigDb analysis Only for Human Genes! 
 
 for other species, You should prepare your own gene sets!
 
@@ -522,7 +526,7 @@ if (FALSE) {
 ```
 
 
-#### 12.1.4  Using your own gene sets
+#### 11.1.4  Using your own gene sets
 
 ```{r}
 # make your own customed gmt file(can be from ATACseq/oDamID...)
@@ -552,9 +556,9 @@ if (FALSE) {
 }
 ```
 
-### 12.2 Using GSEA software in windows
+### 11.2 Using GSEA software in windows
 
-#### 12.2.1 From counts
+#### 11.2.1 From counts
 
 export count data from DESeq2
 
@@ -574,6 +578,6 @@ and make the cls file, refer to:
 
 > http://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/Data_formats#GCT:_Gene_Cluster_Text_file_format_.28.2A.gct.29
 
-#### 12.2.1 From ranked list
+#### 11.2.1 From ranked list
 
 use .rnk files for GSEA analysis!
