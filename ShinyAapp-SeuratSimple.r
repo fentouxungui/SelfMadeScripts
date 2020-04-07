@@ -84,7 +84,7 @@ ui <- dashboardPage(
                     plotOutput("ClusterInfo"),collapsible = TRUE,status = "primary"
                 ),
                 box(solidHeader = TRUE,
-                  title = "Top 10 Markers of each Cluster By log(FC)",
+                  title = "Top 20 Markers of each Cluster By log(FC)",
                   DT::dataTableOutput("MarkersTable"),collapsible = TRUE,status = "primary"
                 )
               )   
@@ -206,7 +206,7 @@ server <- function(input, output,session) {
   )
   
   output$MarkersTable <- DT::renderDataTable(
-    ClusterMarkers() %>%  group_by(cluster) %>% top_n(n = 10, wt = avg_logFC) %>% DT::datatable(options = list(scrollX = TRUE)) %>% 
+    ClusterMarkers() %>%  group_by(cluster) %>% top_n(n = 20, wt = avg_logFC) %>% DT::datatable(options = list(scrollX = TRUE)) %>% 
       DT::formatRound(c('avg_logFC')) %>% DT::formatSignif(c('p_val','p_val_adj'))
   )
 }

@@ -207,7 +207,7 @@ ls *rmChrM.bam | while read id;
 do
 picard MarkDuplicates I=${id} O=${id%.bam}.rmDup.bam \
 REMOVE_DUPLICATES=true VALIDATION_STRINGENCY=LENIENT \
-METRICS_FILE=${id%.*}.rmDup.txt
+METRICS_FILE=${id%.bam}.rmDup.log
 done
 
 

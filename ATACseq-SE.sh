@@ -86,17 +86,38 @@ cd $output_folder
 echo "************************************************************************"
 echo "Step 1: using cutadapt to remove reads with length less than 10(default)"
 echo "************************************************************************"
+mkdir -p fastqc
 mkdir -p cutadapt
-cd ../fastq
-num_fastq=`ls -l | wc -l`
-ls *.fastq | while read id;
+
+cd fastqc
+qc_path=`pwd`
+cd ../../fastq
+num_fastq=`ls -l *.gz | wc -l`
+
+fastqc \
+-t $num_fastq \
+*.gz \
+-o $qc_path
+
+ls *.fastq.gz | while read id;
 do
-cutadapt -a CTGTCTCTTATACACATCT -m 10 -j 12 \
--o ../$output_folder/cutadapt/${id%.*}.cutadapt.fastq ${id}
+cutadapt \
+-a CTGTCTCTTATACACATCT \
+-m 10 \
+-j 12 \
+-o ../$output_folder/cutadapt/${id%.fastq.gz}.cutadapt.fastq \
+>& ../$output_folder/cutadapt/${id%.fastq.gz}.cutadapt.log \
+${id}
 done
 
+cd ../$output_folder/cutadapt
+fastqc \
+-t $num_fastq \
+*.fastq \
+-o ../fastqc
+
 # bowtie2 mapping reads to reference
-cd ../$output_folder
+cd ../
 mkdir -p bowtie2
 cd cutadapt/
 echo "***********************************************************************************"
@@ -104,7 +125,11 @@ echo "Step 2: using bowtie2 to map reads to reference and using samtools to sort
 echo "***********************************************************************************"
 ls *.cutadapt.fastq | while read id;
 do
-bowtie2 -p $threads --very-sensitive  -x $bowtie2_index -U ${id}  \
+bowtie2 \
+-p $threads \
+--very-sensitive \
+-x $bowtie2_index -U ${id}  \
+2> ../bowtie2/${id%.cutadapt.fastq}.bowtie2.log \
 | samtools view -u -@ $threads \
 | samtools sort -@ $threads > ../bowtie2/${id}.sorted.bam
 done
@@ -122,6 +147,15 @@ samtools view $id | cut -f 3 | sort | uniq -c > ${id%.sorted.bam}.mito.log
 done
 wait
 
+touch Mitochondrial.counts.info.log
+ls *.mito.log | while read id;do
+echo $id >> Mitochondrial.counts.info.log
+cat $id >> Mitochondrial.counts.info.log
+done
+
+rm *.mito.log
+
+
 # remove Mitochondrial reads;sort reads
 echo "**************************************************"
 echo "Step 4: remove  Mitochondrial reads and sort files"
@@ -137,11 +171,17 @@ wait
 echo "******************************"
 echo "Step 5: remove PCR duplicates!"
 echo "******************************"
+
+touch SamtoolsRmDup.log
 ls *rmChrM.bam | while read id;
 do
-samtools markdup -r -@ $threads ${id} ${id%.bam}.rmdup.bam
+echo $id >> SamtoolsRmDup.log
+samtools markdup -r -@ $threads -s ${id} ${id%.bam}.rmdup.bams
 done
 wait
+# how to save log file for this step
+
+
 
 # Remove multi-mapped reads
 echo "**********************************"
@@ -248,6 +288,16 @@ then
 		-o heatmap_PearsonCorr_readCounts.png   \
 		--outFileCorMatrix PearsonCorr_readCounts.tab
 fi
+
+echo "####################################################################"
+echo "######## Step 11: Generating analysis report with multiQC  ##########"
+echo "####################################################################"
+cd ../
+mkdir -p multiQC
+cd ../
+
+multiqc $output_folder \
+--outdir $output_folder/multiQC
 
 trap : 0
 echo >&2 '
