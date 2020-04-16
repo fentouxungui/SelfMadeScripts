@@ -23,6 +23,7 @@ set -e
 ## We have tested this script with 
 ## cutadapt 2.5, bowtie2 2.2.5 and samtools v1.9 
 ## on an Centos system.
+## fastq naming: SRR9305626_R2.fastq.gz and SRR9305626_R1.fastq.gz
 ###############################################
 # change default parameters here!
 bowtie2_index=/home/xilab/reference/UCSC/dm6/Sequence/Bowtie2Index/genome
