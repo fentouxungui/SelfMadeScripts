@@ -20,6 +20,7 @@ set -e
 ## It assumes fastqc,trim_galore,STAR,bedtools,samtools,RSeQC,
 ## featurecounts and multiQC are all available.
 ## We have tested this script on an Centos system.
+## FileName: xxx_R1.fastq.gz xxx_R2.fastq.gz
 ################################################################
 
 threads=24
@@ -167,7 +168,7 @@ cd 3_aligned_STAR
 star_path=$(pwd)
 cd ../2_trimmed_output
 
-ls *val_1.fq.gz | grep "_R1_" | while read id;
+ls *val_1.fq.gz | grep "_R1" | while read id;
 do
 tmp=${id/R1/R2}
 STAR \
