@@ -24,14 +24,15 @@ set -e
 
 threads=24
 length=25
+fastq=fastq
 
 # Augument Parsing
 print_usage_and_exit(){
-    echo "Usage: $0 [-j <number of threads> =24 default] [-m <Galore minimum length> =$length] -i <star index> =path/to/STAR/index -b <genes bed file> =path/to/genes.bed -g <genes gtf file> =path/to/genes.gtf "
+    echo "Usage: $0 [-j <number of threads> = $threads default] [-m <Galore minimum length> = $length default] [-i <star index> = path/to/STAR/index] [-b <genes bed file> = path/to/genes.bed] [-g <genes gtf file> = path/to/genes.gtf] [-f <fastq file directory> = $fastq default]"
     exit 1
 }
 
-while getopts ":j:t:m:i:b:g:h:" opt; do
+while getopts ":j:m:i:b:g:h:f:" opt; do
     case $opt in
         j)
             threads="$OPTARG"
@@ -55,6 +56,10 @@ while getopts ":j:t:m:i:b:g:h:" opt; do
             ;;
         h)
             print_usage_and_exit
+            ;;
+        f)
+            fastq="$OPTARG"
+            echo "-f <fastq dir> = $fastq"
             ;;
         \?)
             echo "Invalid option: -$OPTARG"
@@ -98,6 +103,14 @@ else
     print_usage_and_exit
 fi
 
+if [ -d ${fastq%\/*} ]
+then
+    echo "fastq file directory found! "
+else
+    echo "fastq file directory not exist! Please input correct fastq file directory!"
+    print_usage_and_exit
+fi
+
 
 
 
@@ -112,37 +125,37 @@ echo "########## Step 1. Analysing Sequence Quality with FastQC ##########"
 echo "####################################################################"
 mkdir -p results
 cd results
-mkdir 1_initial_qc
-cd ../fastq
+mkdir -p 1_initial_qc
+cd ../
 
-fastqc *.gz \
+fastqc $fastq/*.gz \
 -t $threads \
--o ../results/1_initial_qc/ \
+-o results/1_initial_qc/ \
 --noextract
 wait
 
 echo "####################################################################"
 echo "##### Step 2:  Removing Low Quality Sequences with Trim_Galore #####"
 echo "####################################################################"
-cd ../results
+cd results
 mkdir -p 2_trimmed_output
-cd ../fastq
+cd ../
 
-ls *.fastq.gz | while read id;
+ls $fastq/*.fastq.gz | while read id;
 do
 trim_galore \
 --cores $threads \
 --quality 20 \
 --fastqc \
 --length $length \
---output_dir ../results/2_trimmed_output/ \
+--output_dir results/2_trimmed_output/ \
 $id
 done
 
 echo "####################################################################"
 echo "########### Step 3: Aligning to Genome with STAR-aligner ###########"
 echo "####################################################################"
-cd ../results
+cd results
 mkdir -p 3_aligned_STAR
 cd 3_aligned_STAR
 star_path=$(pwd)
@@ -184,29 +197,8 @@ bamCoverage -b ${id} \
 -p $threads \
 --normalizeUsing RPKM
 done
-wait
 
 
-echo "####################################################################"
-echo "################## Step 5: RNAseq QC with RSeQC ####################"
-echo "####################################################################"
-cd ../
-mkdir -p 5_RSeQC_report
-cd 3_aligned_STAR
-
-ls *.bam | while read id;
-do
-bam_stat.py \
--i ${id} \
-> ../5_RSeQC_report/${id%.bam}.RSeQC.bam_stat.txt &
-done
-
-ls *.bam | while read id;
-do
-read_distribution.py \
--i ${id} -r $genes_bed \
-> ../5_RSeQC_report/${id%.bam}.RSeQC.reads_distribution.txt &
-done
 
 num_bam=`ls -l *.bam | wc -l`
 
@@ -223,7 +215,7 @@ then
         --plotTitle "Pearson Correlation of Read Counts" \
         --whatToPlot scatterplot \
         -o scatterplot_PearsonCorr_BAMScores.png   \
-        --outFileCorMatrix PearsonCorr_BAMScores.tab
+        --outFileCorMatrix PearsonCorr_BAMScores.tab &
 
     plotCorrelation \
         -in readCounts.npz \
@@ -231,7 +223,7 @@ then
         --plotTitle "Spearman Correlation of Read Counts" \
         --whatToPlot scatterplot \
         -o scatterplot_SpearmanCorr_BAMScores.png   \
-        --outFileCorMatrix SpearmanCorr_BAMScores.tab
+        --outFileCorMatrix SpearmanCorr_BAMScores.tab &
 
     plotCorrelation \
         -in readCounts.npz \
@@ -239,7 +231,7 @@ then
         --plotTitle "Spearman Correlation of Read Counts" \
         --whatToPlot heatmap --colorMap RdYlBu --plotNumbers \
         -o heatmap_SpearmanCorr_readCounts.png   \
-        --outFileCorMatrix SpearmanCorr_readCounts.tab
+        --outFileCorMatrix SpearmanCorr_readCounts.tab &
 
     plotCorrelation \
         -in readCounts.npz \
@@ -248,8 +240,72 @@ then
         --whatToPlot heatmap --colorMap RdYlBu --plotNumbers \
         -o heatmap_PearsonCorr_readCounts.png   \
         --outFileCorMatrix PearsonCorr_readCounts.tab
-fi
+fi &
 
+echo "####################################################################"
+echo "################## Step 5: RNAseq QC with RSeQC ####################"
+echo "####################################################################"
+cd ../
+mkdir -p 5_RSeQC_report
+cd 3_aligned_STAR
+
+ls *.bam | while read id;
+do
+bam_stat.py \
+-i ${id} \
+> ../5_RSeQC_report/${id%.bam}.RSeQC.bam_stat.txt &
+done
+
+
+ls *.bam | while read id;
+do
+read_distribution.py \
+-i ${id} -r $genes_bed \
+> ../5_RSeQC_report/${id%.bam}.RSeQC.reads_distribution.txt &
+done
+
+
+# ls *.bam | while read id;
+# do
+# echo ${id} >> bam.files.txt
+# done
+
+# geneBody_coverage.py -r $genes_bed \
+# -i bam.files.txt -o ../5_RSeQC_report/GeneBodyCoverage
+
+# rm bam.files.txt
+
+task=bam_stat.py
+while ps -ef | grep $task | grep -v 'grep'; do
+sleep 10
+done
+echo "bam_stat.py finished! "
+
+
+task=read_distributi
+while ps -ef | grep $task | grep -v 'grep'; do
+sleep 10
+done
+echo "read_distributiion.py finished! "
+
+
+# task=geneBody_cove
+# while ps -ef | grep $task | grep -v 'grep'; do
+# sleep 10
+# done
+# echo "geneBody_coverage.py finished! "
+
+task=multiBamSummary
+while ps -ef | grep $task | grep -v 'grep'; do
+sleep 30
+done
+echo "multiBamSummary finished! "
+
+task=plotCorrelation
+while ps -ef | grep $task | grep -v 'grep'; do
+sleep 5
+done
+echo "plotCorrelation finished! "
 
 echo "####################################################################"
 echo "######## Step 6: Summarizing Gene Counts with featureCounts ########"

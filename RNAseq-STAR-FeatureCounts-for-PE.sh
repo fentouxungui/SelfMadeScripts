@@ -37,7 +37,7 @@ while getopts ":f:j:o:m:i:b:g:h:" opt; do
     case $opt in
         f)
             fastq="$OPTARG"
-            echo "-d <fastq dir> = $fastq"
+            echo "-f <fastq dir> = $fastq"
             ;;
         o)
             output="$OPTARG"
