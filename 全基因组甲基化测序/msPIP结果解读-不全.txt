@@ -1,0 +1,119 @@
+q0.5
+        ├── check-DMC-DMR-Genes.R
+        ├── detailed_count.txt
+        ├── distance_between_DMBs.txt
+        ├── distance_from_TSS.txt
+        ├── DMC_gene.GOresult.pdf
+        ├── DMC_gene.GOresult.txt
+        ├── DMC_genelist.txt *
+        ├── DMC_q0.5.bed *
+        ├── DMR_0.5.bed
+        ├── DMR_genelist.txt
+        ├── hyperDMC_detailed_count_methyl.txt
+        ├── hyperDMC_genelist.txt
+        ├── hypoDMC_detailed_count_methyl.txt
+        ├── hypoDMC_genelist.txt
+        ├── intersection.DMC2Promoter.txt * 
+        ├── intersection.DMR2Promoter.txt *
+        ├── logs
+        │   ├── log.DMC.txt
+        │   ├── log.getDMR.txt
+        │   ├── log.getStat.txt
+        │   ├── log.gprofiler.txt
+        │   └── log.methylkit.txt
+        ├── methylated_position.txt
+        ├── methylkit *
+        │   ├── CpG_united_filtered_meth.txt  *
+        │   ├── CpG_united_filtered_raw_DMBs.txt *
+        │   └── run_methylKit.R *
+        ├── reform.DMC_q0.5.bed *
+        └── reform.DMR_0.5.bed *
+
+
+D1.D63  表示D1为对照组，D63为试验组
+
+
+.1. /q0.5/methylkit/CpG_united_filtered_meth.txt
+	"chr" "start" "end" "strand" "coverage1" "numCs1" "numTs1" "coverage2" "numCs2" "numTs2" "coverage3" "numCs3" "numTs3" "coverage4" "numCs4" "numTs4" "coverage5" "numCs5" "numTs5" "coverage6" "numCs6" "numTs6" "coverage7" "numCs7" "numTs7" "coverage8" "numCs8" "numTs8"
+	"1" "chr1" 20024 20024 "*" 11 6 5 11 7 4 12 5 7 20 9 11 22 11 11 14 6 8 12 4 8 16 6 10
+	"2" "chr1" 20033 20033 "*" 14 7 7 11 7 4 14 8 6 22 12 10 23 9 14 14 7 7 14 4 10 16 6 10
+
+DMBs: differently methylated bisulfite sites? 不知道
+2. ./q0.5/methylkit/ CpG_united_filtered_raw_DMBs.txt 所有C位点的统计分析结果
+"chr" "start" "end" "strand" "pvalue" "qvalue" "meth.diff"
+"1" "chr1" 20024 20024 "*" 0.395997716192191 0.717187111437706 -7.8125
+"2" "chr1" 20033 20033 "*" 0.0546882589166116 0.335245800593927 -16.9317347687791
+"3" "chr1" 20067 20067 "*" 0.774155436534695 0.863266628901845 -1.53890824622532
+
+
+3. DMC_q0.5.bed : filtered DMCs with q-value 0.5
+bin/script/getDMC.py得到的。
+chr	start	end	methyl(per)_D7	methyl(per)_D63	q_val	meth_diff
+chr1	20032	20033	55.73770491803278	38.80597014925373	0.335245800593927	-16.9317347687791
+chr1	20228	20229	39.83739837398374	50.476190476190474	0.451492266836923	10.6387921022067
+chr1	20356	20357	77.22772277227723	86.60714285714286	0.386265589096195	9.37942008486563
+
+4. intersection.DMC2Promoter.txt：  a list of intersection between genes and DMCs
+# 由DMC_q0.5.bed得到
+注意， 这里的case的methylation level在前，control的在后，与 DMC_q0.5.bed的顺序相反。
+chr1	20887	21887	upstream1K:CLC2DL5;XR_003076322.1	.	+	chr1	20963	20964	50.0	36.486486486486484	0.404834627983825	13.5135135135135
+chr1	20887	21887	upstream1K:CLC2DL5;XR_003076322.1	.	+	chr1	21129	21130	83.78378378378379	93.87755102040816	0.416039657006259	-10.0937672366244
+
+5. DMC_genelist.txt：  a list of genes with DMCs overlapped their promoter region
+
+
+5. DMR_q0.5.bed : information of differentially methylated regions
+使用bsmooth得到的
+
+
+detailed_count.txt
+每个基因promoter区域的Hyper 和 Hypo C的数目信息
+染色体	起始位置	终位置	基因ID	长度（都是1000bp，见起始位置和终位置，代表promoter区域）	HyperC的数目	HypoC的数目	C的总数	HYPERC-normalized后的值	HypoC-normalized后的值 所有C-normalized后的值
+#CHR	START	END	REGION_TYPE	GENEID	LENGTH	C_HYPER	C_HYPO	C_TOTAL	NormC_HYPER	NormC_HYPO	NormC_TOTAL
+chr1	20887	21887	upstream1K:CLC2DL5	XR_003076322.1	1000	7	3	10	0.007	0.003	0.01
+chr1	20887	21887	upstream1K:CLC2DL5	XR_003076321.1	1000	7	3	10	0.007	0.003	0.01
+
+
+distance_between_DMBs.txt 
+# 由 intersection.DMC2Promoter.txt文件得到
+记录的是每个基因的每个DMC位点之间的距离
+#avg_dist_between_DBMs	num_total_DMBs	region_type	gene_name	gene_direction	distances
+104.428571428571	8	U	XR_003076322.1	.		166	120	48	278	3	99	17
+104.428571428571	8	U	XR_003076321.1	.		166	120	48	278	3	99	17
+
+
+hyperDMC_detailed_count_methyl.txt
+# 染色体	起始位置	终位置	基因ID	上游1k；基因symbol	转录本ID	序列长度	HyperC的数目	HypoC的数目	HypoC的数目	总C数目	HYPERC-normalized后的值	HypoC-normalized后的值 所有C-normalized后的值
+chr1	130722	131722	upstream1K:LOC107049791	XR_001462136.2	1000	3	0	3	0.003	0	0.003
+chr1	130895	131895	upstream1K:LOC107049791	XR_003076324.1	1000	2	0	2	0.002	0	0.002
+hypoDMC_detailed_count_methyl.txt 
+chr1	44692	45692	upstream1K:CLC2DL4	XM_015273092.2	1000	0	8	8	0	0.008	0.008
+chr1	44692	45692	upstream1K:CLC2DL4	XM_025152772.1	1000	0	8	8	0	0.008	0.008
+每个基因promoter区域的HyperC和HypoC的数目信息
+
+
+
+要做的事情
+  
+画超甲是化位点和 低甲化位点的曼哈顿图， 用intersection.DMC2Promoter.txt文件做？
+关注pomofer，Enhancer等调控区域DMC/DMR的TF结合位点，
+DMC_q0.5.bed DMC再基因组元件上分布（promoter影响基因表达, genebodyd等，TE转座元件，影响基因组稳定）
+correlation图是不是可以通过调参优化，去除reads coverage低的C位点？
+
+annotatePeaks.pl DMC_q0.5.bed galGal6 -gtf /home/xilab/software/msPIPE/msPIPE/reference/galGal6/galGal6.ncbiRefSeq.gtf  > outputfile.txt
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,60 @@
+---
+title: "label-mesen-markers"
+author: "Zhang Yongchao"
+date: "August 31, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = -1,
+                      message = -1)
+```
+```{r}
+library(Seurat)
+library(readr)
+```
+
+```{r}
+cds <- readRDS("../Merge-Total-SeuratHarmony.rds")
+DimPlot(cds,label = TRUE)
+```
+
+```{r}
+markers.file <- read_csv("human_CRC_mesen_marker_selected.csv")
+head(markers.file)
+```
+```{r}
+markers <- as.character(na.omit(unlist(markers.file)))
+markers <- markers[markers %in% rownames(cds)]
+```
+
+```{r fig.width=8,fig.height=8}
+for (i in 1:ceiling(length(markers)/2)) {
+  print(FeaturePlot(cds,
+            features =  as.character(na.omit(markers[(i*2-1):(i*2)])),
+            cols = c("grey","red"),
+            split.by = "type"
+            #by.col = FALSE,
+            #coord.fixed = TRUE,
+            #ncol = 2,
+            #label = TRUE
+            ))
+}
+```
+
+```{r fig.width=8,fig.height=8}
+pdf(file = "mesen.markers.pdf",width = 8,height = 8)
+for (i in 1:ceiling(length(markers)/2)) {
+  print(FeaturePlot(cds,
+            features =  as.character(na.omit(markers[(i*2-1):(i*2)])),
+            cols = c("grey","red"),
+            split.by = "type"
+            #by.col = FALSE,
+            #coord.fixed = TRUE,
+            #ncol = 2,
+            #label = TRUE
+            ))
+}
+dev.off()
+```

@@ -1,0 +1,8 @@
+Conversion Statistics:
+
+total otherC considered (>95% C+T): 10
+average conversion rate = 100
+total otherC considered (Forward) (>95% C+T): 10
+average conversion rate (Forward) = 100
+total otherC considered (Reverse) (>95% C+T): 0
+average conversion rate (Reverse) = 0

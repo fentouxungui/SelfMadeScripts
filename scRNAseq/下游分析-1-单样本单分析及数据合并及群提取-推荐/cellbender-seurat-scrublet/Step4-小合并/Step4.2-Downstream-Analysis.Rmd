@@ -1,0 +1,150 @@
+---
+title: "Step4.2 Downstream Analysis"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+**Parameters:**
+
+```{r}
+Rds.dir <- "./4.1-Replicates-Merged-Cells-Rds"
+Results.dir <- "./4.2-Downstream-Analysis"
+Resolution <- "0.6"
+sample.keyword <- "(_D145_)|(_E145_)"
+Single.Rds.dir <- "/3.3-Clean-Cells-Rds"
+Single.dir <- "../../../Single-Sample/Cellbender-Seurat-Scrublet"
+```
+
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(dplyr))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(pheatmap))
+```
+
+```{r fig.width=6,fig.height=6}
+cds <- readRDS(list.files(Rds.dir,pattern = "rds$",full.names = TRUE))
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.",Resolution,sep = "")
+Idents(cds) <- cluster.resolution
+DimPlot(cds,label = TRUE) + NoLegend()
+```
+
+# Find Cluster Markers
+
+```{r}
+save.dir <- paste(Results.dir,"/","Cluster-Markers",sep = "")
+if ( !dir.exists(save.dir)) {
+  dir.create(save.dir,recursive = TRUE)
+}
+save.file <- paste(save.dir,"/",basename(getwd()),"+",cluster.resolution,"+Default.csv",sep = "")
+```
+
+```{r}
+if (!file.exists(save.file)) {
+  cds.markers <- FindAllMarkers(cds, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+  write.csv(cds.markers,file = save.file)
+}else{
+  cds.markers <- read.csv(save.file,stringsAsFactors = FALSE,row.names = 1)
+}
+
+cds.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
+```
+
+# Heatmap of top 10 markers
+
+```{r fig.height=18,fig.width=20}
+top10 <- cds.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+DoHeatmap(cds, features = top10$gene) + NoLegend()
+```
+
+# Dotplot of top 3 markers
+
+```{r fig.width=21,fig.height=18}
+DefaultAssay(cds) <- "RNA"
+cds <- NormalizeData(cds,assay = DefaultAssay(cds))
+DefaultAssay(cds) <- "CellBender"
+
+top3 <- cds.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_logFC)
+p1 <- DotPlot(cds,features = unique(top3$gene), group.by = cluster.resolution, assay = "CellBender") + RotatedAxis()
+p2 <- DotPlot(cds,features = unique(top3$gene), group.by = cluster.resolution, assay = "RNA") + RotatedAxis()
+wrap_plots(p1,
+           p2,ncol = 1)
+```
+
+# Cluster correlation
+
+```{r fig.height=6,fig.width=7}
+av.exp <- AverageExpression(cds)[[DefaultAssay(cds)]]
+cor.exp <- as.data.frame(cor(av.exp,method = "pearson"))
+pheatmap(cor.exp)
+cor.exp <- as.data.frame(cor(av.exp,method = "spearman"))
+pheatmap(cor.exp)
+```
+
+# Compare the clustering of merged sample and single sample 
+
+```{r}
+AnalysisDirs <- list.dirs(Single.dir, recursive = FALSE, full.names = TRUE)
+# Old code for Jinzhen SI scRNAseq
+# AnalysisDirs <- AnalysisDirs[gsub("_B\\d+.*$","",basename(AnalysisDirs)) == basename(getwd())]
+# if (any(grepl("Merge$",basename(AnalysisDirs)))) {
+#   # Only keep merged rds
+#   keys <- gsub("Merge","",grep("Merge$",basename(AnalysisDirs), value = TRUE))
+#   sample.OneLane <- AnalysisDirs[grep(keys,basename(AnalysisDirs),invert = TRUE)]
+#   AnalysisDirs <- c(sample.OneLane,AnalysisDirs[grepl("Merge$",basename(AnalysisDirs))])
+# }
+AnalysisDirs <- AnalysisDirs[grepl(pattern = sample.keyword, basename(AnalysisDirs))]
+rds.files <- list.files(paste(AnalysisDirs, Single.Rds.dir, sep = ""), pattern = "rds$",full.names = TRUE)
+basename(rds.files)
+
+rds.files <- list.files(paste(AnalysisDirs,Single.Rds.dir,sep = ""),pattern = "rds$",full.names = TRUE)
+rds.files <- rds.files[gsub(".rds","",basename(rds.files)) %in% unique(as.character(cds@meta.data$old.name))]
+length(rds.files) == length(unique(as.character(cds@meta.data$old.name)))
+
+obj.list <- lapply(rds.files, function(pbmc){
+  # message("* Processing sample: ",pbmc)
+  cds <- readRDS(pbmc)
+  # message("Project Name is ", cds@project.name)
+  return(cds)
+})
+# obj.list
+```
+
+** Better Do this after adding the annotation**
+
+```{r fig.width=14,fig.height=12}
+p1 <- DimPlot(cds,label = TRUE, group.by = cluster.resolution)
+for ( seurat in obj.list) {
+  print(seurat@project.name)
+  p2 <- DimPlot(cds,label = TRUE,cells = colnames(cds)[cds@meta.data$old.name == seurat@project.name])
+  p4 <- DimPlot(seurat,label = TRUE,group.by = cluster.resolution)
+  # To keep colors used in p4 are same with colors used in p3
+  g <- ggplot_build(p4)$data[[1]]
+  g <- g[!duplicated(g$group),]
+  p3 <- DimPlot(cds,label = TRUE,cells = colnames(cds)[cds@meta.data$old.name == seurat@project.name],group.by = paste("Single_",cluster.resolution,sep = ""),cols = g$colour[order(g$group)])
+  print(wrap_plots(p1,p2,
+                   p3,p4))
+  # print(FeaturePlot(seurat,features = c("Pdgfra","Epcam","Ptprc","Vwf","Pdgfrb","Nrxn1",'Rgs5','scrublet','Acta2','Cd34'),ncol = 3) & NoLegend())
+}
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

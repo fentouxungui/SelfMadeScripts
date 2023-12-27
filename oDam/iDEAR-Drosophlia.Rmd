@@ -1,0 +1,195 @@
+---
+title: "iDEAR"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+>[iDEAR - iDamID Enrichment Analysis with R](https://bitbucket.org/juanlmateo/idear)
+
+Description
+Identify the binding profile of a transcription factor (or any DNA binding protein) from iDamIDseq data. Different to other methods, with iDamIDseq + iDEAR you obtain both the regions in the genome where your protein of interest (POI) is present or bound and also the regions from where your POI is actively or passively excluded. The first set of regions is evidenced by significantly higher methylation signal due to the activity of the Dam protein fused to the POI with respect to the control sample. The second set corresponds to the regions with significantly higher methylation signal by the fusion of the Dam protein to GFP+NLS.
+
+If you use this tool for you scientific work, please cite it as:
+
+Gutierrez-Triana JA, Mateo JL, Ibberson D, Ryu S, Wittbrodt J (2016) iDamIDseq and iDEAR: an improved method and computational pipeline to profile chromatin-binding proteins. Development 143:4272–4278.
+
+For more information you can read our manuscript in Development: [iDamIDseq and iDEAR: an improved method and computational pipeline to profile chromatin-binding proteins](http://dev.biologists.org/content/143/22/4272) or in biorxiv: [iDamIDseq and iDEAR: An improved method and a computational pipeline to profile chromatin-binding proteins of developing organisms](http://biorxiv.org/content/early/2016/07/05/062208)
+
+# Installation
+
+## From bitbucket
+
+You can install iDEAR directly from bitbucket using the devtools package. To do that run these commands:
+
+```{r}
+#if(!require("devtools")) install.packages("devtools")
+#devtools::install_bitbucket("juanlmateo/idear")
+```
+
+```{r}
+library(iDEAR)
+library(dplyr)
+library(BSgenome.Dmelanogaster.UCSC.dm6)
+```
+
+
+# Usage
+
+**Samples information**
+
+First of all, you need to define the information of the samples to be analysed as a data.frame with three columns. The first column holds the name of the sample (POI or GFP), the second the replicate number and the third the path to the bam file with the mapped reads for each sample.
+
+
+```{r}
+bam.path <- "../2_mapping_bowtie2"
+all.bams <- list.files(bam.path, pattern = "sorted.bam$",full.names = TRUE)
+all.bams
+
+Control <- "control-esg"
+Case <- "case-chinmo"
+
+samples <- data.frame(name = factor(c(rep(Case,3),rep(Control,3)),levels = c(Case,Control)),
+                      replicate = c(1:3,1:3),
+                      paths = all.bams)
+
+samples
+```
+
+
+In order to determine which factor is used in the numerator and denominator for the DE analysis and interpretation of the log2FC there are two possibilities: if the first column in the samples variable, identifying the sample name, is of factor type the order of the levels is taken into account, i.e. first level will be the numerator and the second level the denominator. In other case, the first listed sample will be in the numerator and the second in the denominator. In the example above the sample name is defined as a factor and the order, first "TF", means that the "TF" sample is considered as positive and "GFP" as control.
+
+
+**"GATC" fragments**
+
+It is necessary to have the coordinates of the fragments in the genome flanked by "GATC" sites, potential DpnI or DpnII restriction sites. You may have these coordinates in a bed file, in this case provide the path to this file directly to the function ``getEnrichedDamRegions``. Otherwise iDEAR provides the function ``getDpnIFragments`` to extract these coordinates from a BSgenome object.
+
+
+```{r}
+fragments <- getDpnIFragments(BSgenome.Dmelanogaster.UCSC.dm6)
+```
+
+If there is not yet a package for the genome of your species it is simple to create a BSgenome object from a fasta file with the genome sequence following the instructions from this [vignette](https://bioconductor.org/packages/release/bioc/vignettes/BSgenome/inst/doc/BSgenomeForge.pdf).
+
+
+**Enrichment analysis**
+
+Once the samples information and the fragments coordinates are ready you only need to use the function getEnrichedDamRegions. This function computes the read counts for all the selected fragments. Fragments with very low read coverage are excluded based on the value of the parameter min.rel.count. Read coverage is defined as the ratio of the number of reads in each fragment to its length. This ratio must be greater than min.rel.count times the ratio of total reads in fragments to the length of all fragments.
+
+Next, from the fragments that pass this filter those that are adjacent, or separated by a distance smaller than the length of the shorter fragment, will be join together to form sites. Finally, using the DESeq2 package this function defines the sites from the genome with significant difference between the samples.
+
+```{r}
+results <- getEnrichedDamRegions(samples,fragments, significance = 1)
+write.csv(as.data.frame(results),file = "iDEAR.results.csv")
+```
+
+As mentioned above, the value for the parameter ``fragments`` can be the path to a bed file or the result of the function ``getDpnIFragments``.
+
+After running the previous snippet the results variable contains the coordinates of the identified regions as a GRanges object with additional columns. The column ``log2FoldChange`` indicates the fold change of POI versus the control in log2. Taking into account this column it is possible to separate the "positive", or bound, and "negative" regions if necessary.
+
+```{r}
+poi.positive <- results[mcols(results)$log2FoldChange > 0, ]
+poi.negative <- results[mcols(results)$log2FoldChange < 0, ]
+write.csv(poi.positive,file = "poi.positive.csv")
+write.csv(poi.negative,file = "poi.negative.csv")
+```
+
+**Visualization**
+
+Optionally, for visualization purposes, you can use the function saveBigWigScore that will generate a bigWig file with the log2 fold change of the average normalized read coverage between the POI and the control replicates. The resulting file can be displayed, for instance, in the UCSC genome brower or tools like IGV.
+
+```{r}
+# saveBigWigScore(samples,BSgenome.Dmelanogaster.UCSC.dm6,'my_Analysis_bin100.bw')
+# saveBigWigScore(samples,BSgenome.Dmelanogaster.UCSC.dm6,'my_Analysis_bin80.bw',window.width =80)
+#saveBigWigScore(samples,BSgenome.Dmelanogaster.UCSC.dm6,'my_Analysis_bin70.bw',window.width =70)
+#error    window.width >= length(reads)
+```
+
+**When window.width >= length(reads)**
+
+```{r}
+library(rtracklayer)
+library(GenomicRanges)
+library(GenomicAlignments)
+```
+
+```{r}
+file.name <- 'my_Analysis_bin30.bw'
+genome <- BSgenome.Dmelanogaster.UCSC.dm6
+window.width = 30
+
+# when window.width < length(reads),first resize reads!!!
+ResizeReads <- function(reads, width=1, fix="start", ...) {
+  reads <- as(reads, "GRanges")
+  stopifnot(all(strand(reads) != "*"))
+  resize(reads, width=window.width, fix=fix, ...)
+}
+
+tiles <- GenomicRanges::tileGenome(BSgenome::seqinfo(genome), 
+                                   tilewidth = window.width, cut.last.tile.in.chrom = TRUE)
+
+read.count <- GenomicAlignments::summarizeOverlaps(tiles, 
+                                                   as.character(samples[, 3]), ignore.strand = T,preprocess.reads=ResizeReads)
+
+totals <- apply(SummarizedExperiment::assay(read.count), 2, sum)
+
+norm.count <- t(apply(SummarizedExperiment::assay(read.count), 
+                      1, "/", totals)) * 1e+06
+
+idx.sample1 <- which(samples[, 1] == levels(samples[,1])[1])
+
+idx.sample2 <- which(samples[, 1] == levels(samples[,1])[2])
+
+value <- log2((apply(norm.count[, idx.sample1], 1, sum)/length(idx.sample1) + 
+                 1)/(apply(norm.count[, idx.sample2], 1, sum)/length(idx.sample2) + 
+                       1))
+
+GenomicRanges::score(tiles) <- value
+
+rtracklayer::export.bw(tiles, file.name)
+```
+
+# Annotate Peaks By Homer
+
+## export to HOMER annotatePeaks.pl
+
+```{r}
+iDEAR.data <- as.data.frame(results)
+
+results_for_anno <- transmute(iDEAR.data,PeakID = paste0(seqnames,"-",rownames(iDEAR.data),sep=""),Chr = seqnames,
+               Start = start,End = end,Strand = rep("+",length(rownames(iDEAR.data))))
+iDEAR.data$PeakID <- paste0(iDEAR.data$seqnames,"-",rownames(iDEAR.data),sep="")
+
+head(results_for_anno)
+write.table(results_for_anno,file = "df.peaks.txt",row.names = FALSE,quote = FALSE,sep = "\t")
+system("annotatePeaks.pl df.peaks.txt dm6 > df.peaks.annotated.txt -gtf /data0/reference/UCSC/dm6/Annotation/Archives/archive-2015-07-24-09-25-49/Genes/genes.gtf")
+```
+
+## 合并iDEAR结果和HOMER注释结果
+
+```{r}
+res.anno <- read.delim(file = "df.peaks.annotated.txt",header = TRUE,sep = "\t")
+colnames(res.anno)[1] <- "PeakID"
+
+res.final <- merge(iDEAR.data,res.anno[,-7:-2],by= "PeakID")
+head(res.final)
+length(unique(res.final$Gene.Name))
+write.csv(res.final,file = "iDEAR.results.annotated.csv")
+
+file.remove(c("df.peaks.txt","df.peaks.annotated.txt"))
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```

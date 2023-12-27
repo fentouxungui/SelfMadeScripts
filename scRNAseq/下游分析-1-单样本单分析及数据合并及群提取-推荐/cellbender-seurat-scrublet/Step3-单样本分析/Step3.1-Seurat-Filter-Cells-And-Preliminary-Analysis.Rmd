@@ -1,0 +1,748 @@
+---
+title: "Step3.1 Seurat Filter Cells And Preliminary Analysis"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE,
+  fig.align = "center")
+```
+
+> [Seurat - Guided Clustering Tutorial](see: https://satijalab.org/seurat/v3.1/pbmc3k_tutorial.html)
+
+```{r}
+Results.dir <- "./3.1-QC-Passed-Cells-Rds/"
+Raw.rds.dir <- "./2.2-Raw-Rds"
+Assay.use <- "CellBender" # RNA is not supported right now!
+
+if ( !dir.exists(Results.dir)) {
+  dir.create(Results.dir)
+}
+```
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(Matrix))
+suppressMessages(library(clustree))
+suppressMessages(library(scater))
+suppressMessages(library(clustree))
+suppressMessages(library(Matrix))
+suppressMessages(library(DT))
+```
+
+
+# import data
+
+** Attention **: We will also remove cells with zero CellBender UMI counts, these cell usually have low CellRanger UMI counts, details see "Q1: what is the zero counts cells" : "Step2.2 CellBender QC And Generate Raw Cells Rds"
+
+## import
+
+```{r}
+cds <- readRDS(list.files(Raw.rds.dir, pattern = "rds$",full.names = TRUE))
+DefaultAssay(cds) <- Assay.use
+cds
+```
+
+## Remove cells with zero UMI counts
+
+Attention, some cells has zero CellBender revised UMI counts. This is a bug in cellbender step.
+
+```{r}
+cells.kept <- colnames(cds)[cds@meta.data[,paste("nCount", DefaultAssay(cds),sep = "_")] > 0]
+cds <- subset(cds, cells = cells.kept)
+cds
+```
+
+## Add cell annotations
+
+> [hbctraining - 04_SC_quality_control](https://github.com/hbctraining/scRNA-seq_online/blob/master/lessons/04_SC_quality_control.md)
+
+**number of genes detected per UMI**: this metric with give us an idea of the complexity of our dataset (more genes detected per UMI, more complex our data)
+
+```{r}
+cds[["percent.mt"]] <- PercentageFeatureSet(cds, pattern = "^mt-",assay = DefaultAssay(cds))
+cds[[paste("nCount",DefaultAssay(cds),"RemoveMT",sep = "_")]] <- cds[[paste("nCount", DefaultAssay(cds),sep = "_")]]*(1-cds[["percent.mt"]]/100)
+cds[["log10GenesPerUMI"]] <- log10(cds[[paste("nFeature", DefaultAssay(cds),sep = "_")]]) / log10(cds[[paste("nCount", DefaultAssay(cds),sep = "_")]])
+```
+
+# QC - pre-filter
+
+```{r fig.width=10,fig.height=12}
+qc.keys <- colnames(cds@meta.data)[2:10]
+VlnPlot(cds,features = qc.keys, ncol = 3,pt.size = 0.001,group.by = "orig.ident") + NoLegend()
+VlnPlot(cds,features = qc.keys, ncol = 3,pt.size = 0,group.by = "orig.ident") + NoLegend()
+```
+
+```{r fig.width=11,fig.height=9}
+metadata <- cds@meta.data
+  
+# Visualize the number UMIs/transcripts per cell
+p1 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_RNA, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p2 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_CellBender, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p3 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_CellBender_RemoveMT, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+# Visualize the distribution of features detected per cell
+p4 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nFeature_RNA, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+p5 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nFeature_CellBender, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+
+# Visualize the distribution of mitochondrial gene expression detected per cell
+p6 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=percent.mt, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(20,30,40,50,60,70)) + NoLegend()
+
+
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+p7 <- metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.7,0.75,0.8,0.85)) + NoLegend()
+
+# UMI difference of CellRanger and CellBender
+p8 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(50,100)) + NoLegend()
+
+# UMI difference percent of CellRanger and CellBender
+p9 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff_percent, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.01,0.05,0.1)) + NoLegend()
+
+wrap_plots(p1,p2,p3,
+           p4,p5,p6,
+           p7,p8,p9)
+```
+
+```{r fig.width=12,fig.height=8}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+x.line <- c(1000,2000,3000,5e4,1e5)
+y.line <- c(300,500,700)
+
+p1 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_CellBender, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p2 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_CellBender, color=log10GenesPerUMI)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p3 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_CellBender, color=nCounts_Diff)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p4 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_CellBender, color=nCounts_Diff_percent)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+wrap_plots(p1,p2,
+           p3,p4)
+
+
+p5 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p6 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=log10GenesPerUMI)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p7 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=nCounts_Diff)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p8 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=nCounts_Diff_percent)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+wrap_plots(p5,p6,
+           p7,p8)
+```
+
+```{r fig.width=12,fig.height=6}
+plot1 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),sep = "_"), feature2 = "percent.mt") + NoLegend()
+plot2 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),sep = "_"), feature2 = paste("nFeature", DefaultAssay(cds),sep = "_")) + NoLegend()
+plot1 + plot2
+
+plot1 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),"RemoveMT",sep = "_"), feature2 = "percent.mt") + NoLegend()
+plot2 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),"RemoveMT",sep = "_"), feature2 = paste("nFeature", DefaultAssay(cds),sep = "_")) + NoLegend()
+plot1 + plot2
+```
+
+
+```{r fig.width=6,fig.height=6}
+plotHighestExprs(as.SingleCellExperiment(cds,assay = DefaultAssay(cds)),colour_cells_by = "orig.ident")
+```
+
+# Set QC Cut-offs
+
+```{r}
+qc.mat <- data.frame(Sample = basename(getwd()),
+                     nCount_CellBender_RemoveMT.min = 1500,
+                     nCount_CellBender_RemoveMT.max = 1e5,
+                     nFeature_CellBender.min = 500,
+                     nFeature_CellBender.max = Inf,
+                     percent.mt.max = 25,
+                     log10GenesPerUMI.min = 0.8)
+qc.mat
+```
+
+```{r}
+QC.Cut <- function(SeuratObj, QC.mat = qc.mat){
+  Sample.meta <- SeuratObj@meta.data[,c("nCount_CellBender_RemoveMT","nFeature_CellBender","percent.mt","log10GenesPerUMI")]
+  dplyr::mutate(Sample.meta,
+                nCount_CellBender_RemoveMT = nCount_CellBender_RemoveMT > QC.mat$nCount_CellBender_RemoveMT.min & nCount_CellBender_RemoveMT < QC.mat$nCount_CellBender_RemoveMT.max,
+                nFeature_CellBender = nFeature_CellBender > QC.mat$nFeature_CellBender.min & nFeature_CellBender < QC.mat$nFeature_CellBender.max,
+                percent.mt = percent.mt < QC.mat$percent.mt.max,
+                log10GenesPerUMI = log10GenesPerUMI > QC.mat$log10GenesPerUMI.min)
+}
+sample.meta <- QC.Cut(cds)
+sample.statics <- apply(!sample.meta, 2, sum)
+names(sample.statics) <- paste("RemovedBy",names(sample.statics),sep = "_")
+statics.df <- data.frame(cell.all = length(colnames(cds)), t(sample.statics), cell.left = sum(apply(sample.meta, 1, all)))
+qc_ststics.file <- paste(Results.dir,"qc.statics.csv",sep = "")
+qc_ststics <- cbind(qc.mat,statics.df)
+qc_ststics
+write.csv(qc_ststics,file = qc_ststics.file)
+```
+
+# QC Cut-offs' effect on samll cells
+
+## extract cells with low UMI Counts
+
+These cell are Dead cells, Small size cells, and other cells with low sequencing depth(rare).
+
+```{r}
+cds.sub <- subset(cds, subset =  nCount_CellBender_RemoveMT > 300)
+cds.sub <- subset(cds.sub, subset =  nCount_CellBender_RemoveMT < 3000)
+cds.sub
+```
+
+## Define cells by MT percent
+
+```{r fig.width=9,fig.height=10}
+cds.sub[["group"]] <- ifelse(cds.sub@meta.data$percent.mt > 2,"deadcells","smallcells")
+VlnPlot(cds.sub,features = qc.keys, ncol = 3,pt.size = 0,group.by = "group") + NoLegend()
+```
+
+```{r fig.width=6,fig.height=4}
+metadata <- cds.sub@meta.data
+metadata %>% 
+  ggplot(aes(color=orig.ident, x=percent.mt, fill=group)) + 
+  geom_density(alpha = 0.2) + 
+  scale_x_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = c(2,5,10,20,30,40,50,60,70)) + NoLegend()
+
+x.line <- c(1000,2000,3000,5e4,1e5)
+y.line <- c(300,500,700)
+metadata %>% 
+  ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=percent.mt)) + 
+  geom_point() + 
+  scale_colour_gradient(low = "gray90", high = "black") +
+  stat_smooth(method=lm) +
+  scale_x_log10() + 
+  scale_y_log10() + 
+  theme_classic() +
+  geom_vline(xintercept = x.line) +
+  geom_hline(yintercept = y.line)
+```
+
+## Check QC Cutoffs's effect
+
+```{r}
+sample.meta.sub <- QC.Cut(cds.sub)
+sample.statics.sub <- apply(!sample.meta.sub, 2, sum)
+statics.df.sub <- data.frame(pre.filter = length(colnames(cds.sub)), t(sample.statics.sub), post.filter = sum(apply(sample.meta.sub, 1, all)))
+statics.df.sub
+table(unname(apply(sample.meta.sub, 1, all)),cds.sub$group)
+cds.sub[["Keep"]] <- ifelse(unname(apply(sample.meta.sub, 1, all)),"Kept","Removed")
+```
+
+```{r fig.width=11,fig.height=9}
+metadata <- cds.sub@meta.data
+
+# Visualize the number UMIs/transcripts per cell
+p1 <- metadata %>% 
+  	ggplot(aes(color=Keep, x=nCount_RNA, fill= Keep)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p2 <- metadata %>% 
+  	ggplot(aes(color=Keep, x=nCount_CellBender, fill= Keep)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p3 <- metadata %>% 
+  	ggplot(aes(color=Keep, x=nCount_CellBender_RemoveMT, fill= Keep)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+# Visualize the distribution of features detected per cell
+p4 <- metadata %>% 
+  	ggplot(aes(color=Keep, x=nFeature_RNA, fill=Keep)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+p5 <- metadata %>% 
+  	ggplot(aes(color=Keep, x=nFeature_CellBender, fill=Keep)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+
+# Visualize the distribution of mitochondrial gene expression detected per cell
+p6 <- metadata %>% 
+  	ggplot(aes(color=Keep, x=percent.mt, fill=Keep)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(20,30,40,50,60,70)) + NoLegend()
+
+
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+p7 <- metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = Keep, fill=Keep)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.7,0.75,0.8,0.85)) + NoLegend()
+
+# UMI difference of CellRanger and CellBender
+p8 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff, color = Keep, fill=Keep)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(50,100)) + NoLegend()
+
+# UMI difference percent of CellRanger and CellBender
+p9 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff_percent, color = Keep, fill=Keep)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.01,0.05,0.1)) + NoLegend()
+
+wrap_plots(p1,p2,p3,
+           p4,p5,p6,
+           p7,p8,p9)
+```
+
+
+# QC - post filter
+
+```{r}
+cells.kept <- colnames(cds)[unname(apply(sample.meta, 1, all))]
+cds <- subset(cds, cells = cells.kept)
+cds
+```
+
+```{r fig.width=10,fig.height=12}
+qc.keys <- colnames(cds@meta.data)[2:10]
+VlnPlot(cds,features = qc.keys, ncol = 3,pt.size = 0.001,group.by = "orig.ident") + NoLegend()
+VlnPlot(cds,features = qc.keys, ncol = 3,pt.size = 0,group.by = "orig.ident") + NoLegend()
+```
+
+```{r fig.width=11,fig.height=9}
+metadata <- cds@meta.data
+  
+# Visualize the number UMIs/transcripts per cell
+p1 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_RNA, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p2 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_CellBender, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p3 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_CellBender_RemoveMT, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+# Visualize the distribution of features detected per cell
+p4 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nFeature_RNA, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+p5 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nFeature_CellBender, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+
+# Visualize the distribution of mitochondrial gene expression detected per cell
+p6 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=percent.mt, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(20,30,40,50,60,70)) + NoLegend()
+
+
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+p7 <- metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.7,0.75,0.8,0.85)) + NoLegend()
+
+# UMI difference of CellRanger and CellBender
+p8 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(50,100)) + NoLegend()
+
+# UMI difference percent of CellRanger and CellBender
+p9 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff_percent, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.01,0.05,0.1)) + NoLegend()
+
+wrap_plots(p1,p2,p3,
+           p4,p5,p6,
+           p7,p8,p9)
+```
+
+```{r fig.width=12,fig.height=8}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+x.line <- c(1000,2000,3000,5e4,1e5)
+y.line <- c(300,500,700)
+
+p1 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_CellBender, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p2 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_CellBender, color=log10GenesPerUMI)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p3 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_CellBender, color=nCounts_Diff)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p4 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_CellBender, color=nCounts_Diff_percent)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+wrap_plots(p1,p2,
+           p3,p4)
+
+
+p5 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p6 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=log10GenesPerUMI)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p7 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=nCounts_Diff)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p8 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=nCounts_Diff_percent)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+wrap_plots(p5,p6,
+           p7,p8)
+```
+
+```{r fig.width=12,fig.height=6}
+plot1 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),sep = "_"), feature2 = "percent.mt") + NoLegend()
+plot2 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),sep = "_"), feature2 = paste("nFeature", DefaultAssay(cds),sep = "_")) + NoLegend()
+plot1 + plot2
+
+plot1 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),"RemoveMT",sep = "_"), feature2 = "percent.mt") + NoLegend()
+plot2 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),"RemoveMT",sep = "_"), feature2 = paste("nFeature", DefaultAssay(cds),sep = "_")) + NoLegend()
+plot1 + plot2
+```
+
+
+```{r fig.width=6,fig.height=6}
+plotHighestExprs(as.SingleCellExperiment(cds,assay = DefaultAssay(cds)),colour_cells_by = "orig.ident")
+```
+
+
+
+# seurat clustering analysis
+
+```{r}
+s.genes <- readRDS("~/reference/Biology-Database/Cell-Cycles-Genes/Mouse/mouse.s.genes.rds")
+g2m.genes <- readRDS("~/reference/Biology-Database/Cell-Cycles-Genes/Mouse/mouse.g2m.genes.rds")
+s.genes
+g2m.genes
+
+cds <- NormalizeData(cds,assay = DefaultAssay(cds))
+cds <- FindVariableFeatures(cds, selection.method = "vst", nfeatures = 3000,assay = DefaultAssay(cds))
+# Remove mito genes from variable gnes
+VariableFeatures(cds) <- grep("^mt-",VariableFeatures(cds),value = TRUE,invert = TRUE)
+
+cds <- CellCycleScoring(cds, s.features = s.genes, g2m.features = g2m.genes,assay = DefaultAssay(cds))
+cds <- ScaleData(cds, vars.to.regress = c("percent.mt",paste("nCount", DefaultAssay(cds),sep = "_"),"S.Score", "G2M.Score"),assay = DefaultAssay(cds))
+cds <- RunPCA(cds, features = VariableFeatures(cds),assay = DefaultAssay(cds))
+cds <- RunUMAP(cds, dims = 1:20,umap.method = "umap-learn",metric = "correlation",assay = DefaultAssay(cds))
+cds <- RunTSNE(cds, dims = 1:20,assay = DefaultAssay(cds))
+cds <- FindNeighbors(cds, dims = 1:20, assay = DefaultAssay(cds)) %>% FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6), assay = DefaultAssay(cds))
+```
+
+# Cell numbers in each resolution
+
+```{r}
+statics.cluster.cells <- function(seurat){
+  test.data <- as.data.frame(as.matrix(seurat@meta.data[,grepl("(_snn_res)|(^Annotation)",colnames(seurat@meta.data))]),stringsAsFactors = FALSE)
+  test.data$cell <- rownames(test.data)
+  rownames(test.data) <- NULL
+  test.data.melt <- reshape2::melt(test.data, id.vars = "cell",value.name = "cluster")
+  test.data.melt.dcast <- reshape2::dcast(test.data.melt,formula = cluster ~ variable,fun.aggregate = length)
+  test.data.melt.dcast$cluster <- as.numeric(test.data.melt.dcast$cluster)
+  test.data.melt.dcast <- arrange(test.data.melt.dcast,cluster)
+  rownames(test.data.melt.dcast) <- test.data.melt.dcast$cluster
+  test.data.melt.dcast$cluster <- NULL
+  return(test.data.melt.dcast)
+}
+DT::datatable(statics.cluster.cells(cds),  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 30, 
+                             autoWidth = TRUE,
+                             scrollX = TRUE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = TRUE,
+                             fixedColumns = TRUE)
+              )
+```
+
+# Choose Resolution
+
+```{r fig.height=10,fig.width=10}
+clustree(cds@meta.data,prefix = paste(DefaultAssay(cds),"_snn_res.",sep = ""))
+```
+
+```{r fig.width=6,fig.height=5}
+Idents(cds) <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+DimPlot(cds,label = TRUE)
+DimPlot(cds,label = TRUE,reduction = "tsne")
+
+DimPlot(cds,group.by = "Phase")
+DimPlot(cds,reduction = "tsne",group.by = "Phase")
+```
+
+# Cluster QC
+
+```{r fig.width=12,fig.height=8}
+VlnPlot(cds,features = qc.keys, pt.size = 0, ncol = 3) + NoLegend()
+```
+
+```{r fig.width=17,fig.height=12}
+FeaturePlot(cds,features = c("Pdgfra","Epcam","Ptprc","Vwf","Pdgfrb","Nrxn1",'Rgs5','Acta2','Cd34','Il33','Il1rl1')) & NoLegend()
+```
+
+```{r fig.width=16,fig.height=14}
+FeaturePlot(cds,features = qc.keys)
+```
+
+# save Rds and mtx file for scrublet doublet analysis
+
+```{r}
+saveRDS(cds,file = paste(Results.dir,basename(getwd()),".rds",sep = ""))
+
+Amatrix <- as.matrix(cds@assays$RNA@counts)
+writeMM(Matrix(Amatrix,sparse = TRUE),file = paste(Results.dir,basename(getwd()),".UMI.mtx",sep = ""))
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```

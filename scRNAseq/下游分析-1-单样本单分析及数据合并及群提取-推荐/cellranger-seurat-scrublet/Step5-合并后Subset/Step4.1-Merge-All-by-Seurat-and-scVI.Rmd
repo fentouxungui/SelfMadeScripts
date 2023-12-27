@@ -1,0 +1,350 @@
+---
+title: "Step 5.1 Merge all samples by Seurat and Python - scVI"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+>>>>>>>>>>>>>>>> Do this part in conda R4 env <<<<<<<<<<<<<<<<<<<<<<
+
+<!-- **Parameters:** -->
+
+<!-- ```{r} -->
+<!-- cluster.resolution <- "RNA_snn_res.0.6" -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- suppressMessages(library(dplyr)) -->
+<!-- suppressMessages(library(Seurat)) -->
+<!-- suppressMessages(library(patchwork)) -->
+<!-- suppressMessages(library(cowplot)) -->
+<!-- suppressMessages(library(ggplot2)) -->
+<!-- suppressMessages(library(ggpubr)) -->
+<!-- suppressMessages(library(clustree)) -->
+<!-- suppressMessages(library(scater)) -->
+<!-- suppressMessages(library(DT)) -->
+<!-- suppressMessages(library(reticulate)) -->
+<!-- use_python("~/miniconda3/envs/R4/bin/python") -->
+<!-- use_condaenv(condaenv = "R4") -->
+<!-- ``` -->
+
+<!-- # import and merge all samples -->
+
+<!-- ```{r} -->
+<!-- rds.file <- list.files("./4.1-Merged-Rds",full.names = TRUE,pattern = "rds$") -->
+<!-- if ( length(rds.file) != 1) { -->
+<!--   stop("More than one Rds file are found!") -->
+<!-- } -->
+<!-- immune.combined <- readRDS(rds.file) -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- # obj.list <- SplitObject(immune.combined,split.by = "orig.ident") -->
+<!-- # features.selected <- c() -->
+<!-- # for (i in obj.list) { -->
+<!-- #   temp <- FindVariableFeatures(i) -->
+<!-- #   features.selected <- append(features.selected, VariableFeatures(temp)) -->
+<!-- # } -->
+<!-- # features.selected <- unique(c(features.selected,VariableFeatures(immune.combined))) -->
+<!-- # length(features.selected) -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- features.selected <- VariableFeatures(FindVariableFeatures(immune.combined, nfeatures = 10000)) -->
+<!-- ``` -->
+
+
+<!-- ## Perform an integrated analysis -->
+
+<!-- ```{r} -->
+<!-- sc <- import('scanpy', convert = FALSE) -->
+<!-- scvi <- import('scvi', convert = FALSE) -->
+<!-- scvi$settings$progress_bar_style = 'tqdm' -->
+<!-- ``` -->
+
+<!-- ```{r} -->
+<!-- as_matrix <- function(mat){ -->
+
+<!--   tmp <- matrix(data=0L, nrow = mat@Dim[1], ncol = mat@Dim[2]) -->
+
+<!--   row_pos <- mat@i+1 -->
+<!--   col_pos <- findInterval(seq(mat@x)-1,mat@p[-1])+1 -->
+<!--   val <- mat@x -->
+
+<!--   for (i in seq_along(val)){ -->
+<!--       tmp[row_pos[i],col_pos[i]] <- val[i] -->
+<!--   } -->
+
+<!--   row.names(tmp) <- mat@Dimnames[[1]] -->
+<!--   colnames(tmp) <- mat@Dimnames[[2]] -->
+<!--   return(tmp) -->
+<!-- } -->
+<!-- x <- as_matrix(GetAssayData(immune.combined,slot='counts',assay = DefaultAssay(immune.combined))) -->
+<!-- x <- x[features.selected,] -->
+<!-- obs <- immune.combined[[]] -->
+<!-- var <- GetAssay(immune.combined)[[]] -->
+<!-- var <- var[features.selected,] -->
+<!-- dim(var) -->
+<!-- ``` -->
+
+
+
+<!-- ```{r} -->
+<!-- adata <- sc$AnnData( -->
+<!--   X   = t(x), #scVI requires raw counts -->
+<!--   obs = obs, -->
+<!--   var = var -->
+<!-- ) -->
+<!-- print(adata) # Note generally in Python, dataset conventions are obs x var -->
+<!-- ``` -->
+
+
+<!-- ```{r} -->
+<!-- # run seteup_anndata -->
+<!-- scvi$model$SCVI$setup_anndata(adata, -->
+<!--                         # layer="counts", -->
+<!--                         batch_key = "orig.ident", -->
+<!--                         # categorical_covariate_keys = c("subject","sex"), -->
+<!--                         continuous_covariate_keys = c("nCount_RNA", "percent.mt", "S.Score", "G2M.Score")) -->
+
+<!-- # create the model -->
+<!-- model = scvi$model$SCVI(adata, -->
+<!--                         n_hidden=as.integer(128),  # Attention, use as.interger for numbers, otherwise numbers will be recognized as folat type in python. -->
+<!--                         n_latent=as.integer(20), -->
+<!--                         n_layers=as.integer(2)) -->
+<!-- # run this step need about 6 hours -->
+
+
+<!-- # train the model -->
+<!-- model$train() -->
+
+<!-- # to specify the number of epochs when training: -->
+<!-- # model$train(max_epochs = as.integer(400)) -->
+<!-- ``` -->
+
+
+<!-- ## Getting the latent represenation and visualization -->
+
+<!-- ```{r} -->
+<!-- # get the latent represenation -->
+<!-- latent = model$get_latent_representation() -->
+
+<!-- # put it back in our original Seurat object -->
+<!-- latent <- as.matrix(latent) -->
+<!-- rownames(latent) = colnames(immune.combined) -->
+<!-- saveRDS(latent, file = "scvi_latent.rds") -->
+<!-- ``` -->
+
+>>>>>>>>>>>>>>>> Do this part in conda base env <<<<<<<<<<<<<<<<<<<<<<
+
+**Parameters:**
+
+```{r}
+# Results.dir <- "./4.1-Merged-Rds/scVI-Method"
+cluster.resolution <- "RNA_snn_res.0.6"
+```
+
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(cowplot))
+suppressMessages(library(ggplot2))
+suppressMessages(library(ggpubr))
+suppressMessages(library(clustree))
+suppressMessages(library(scater))
+suppressMessages(library(DT))
+```
+
+# import and merge all samples
+
+```{r}
+rds.file <- list.files("./4.1-Merged-Rds",full.names = TRUE,pattern = "rds$")
+if ( length(rds.file) != 1) {
+  stop("More than one Rds file are found!")
+}
+immune.combined <- readRDS(rds.file)
+```
+
+```{r}
+colnames(immune.combined@meta.data)[grepl("^RNA_snn_res",colnames(immune.combined@meta.data))] <- 
+  paste("Subset_Harmony_",colnames(immune.combined@meta.data)[grepl("^RNA_snn_res",colnames(immune.combined@meta.data))],sep = "")
+```
+
+
+```{r}
+latent <- readRDS("./scvi_latent.rds")
+immune.combined[['scvi']] <- CreateDimReducObject(embeddings = latent, key = "scvi_", assay = DefaultAssay(immune.combined))
+Dims.used <- 1:20
+immune.combined <- RunUMAP(immune.combined, dims = Dims.used, reduction = 'scvi',reduction.name = "scviumap")
+immune.combined <- RunTSNE(immune.combined, dims = Dims.used, reduction = 'scvi',reduction.name = "scvitsne")
+immune.combined <- FindNeighbors(immune.combined, reduction = 'scvi', dims = Dims.used) %>% 
+  FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6))
+```
+
+# Cell numbers in each resolution
+
+```{r}
+Idents(immune.combined) <- cluster.resolution
+statics.cluster.cells <- function(seurat, keys = "(_snn_res)|(^Annotation)"){
+  test.data <- as.data.frame(as.matrix(seurat@meta.data[, grepl(keys,colnames(seurat@meta.data))]),stringsAsFactors = FALSE)
+  test.data$cell <- rownames(test.data)
+  rownames(test.data) <- NULL
+  test.data.melt <- reshape2::melt(test.data, id.vars = "cell",value.name = "cluster")
+  test.data.melt.dcast <- reshape2::dcast(test.data.melt,formula = cluster ~ variable,fun.aggregate = length) # error!
+  test.data.melt.dcast$cluster <- as.numeric(test.data.melt.dcast$cluster)
+  test.data.melt.dcast <- arrange(test.data.melt.dcast,cluster)
+  rownames(test.data.melt.dcast) <- test.data.melt.dcast$cluster
+  test.data.melt.dcast$cluster <- NULL
+  return(test.data.melt.dcast)
+}
+DT::datatable(statics.cluster.cells(immune.combined, keys = paste("(^",DefaultAssay(immune.combined),"_snn_res)|(^Annotation)",sep = "")),  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 40,
+                             autoWidth = TRUE,
+                             scrollX = TRUE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = TRUE,
+                             fixedColumns = TRUE)
+              )
+```
+
+# Choose Resolution
+
+```{r fig.height=10,fig.width=10}
+clustree(immune.combined@meta.data,prefix = paste(DefaultAssay(immune.combined),"_snn_res.",sep = ""))
+```
+
+```{r fig.width=8,fig.height=6}
+DimPlot(immune.combined,label = TRUE,reduction = "scviumap")
+DimPlot(immune.combined,label = TRUE,reduction = "scvitsne")
+
+DimPlot(immune.combined,group.by = "orig.ident",reduction = "scviumap")
+DimPlot(immune.combined,reduction = "scvitsne",group.by = "orig.ident")
+```
+
+```{r fig.width=6,fig.height=5}
+DimPlot(immune.combined,group.by = "Phase",reduction = "scviumap")
+DimPlot(immune.combined,group.by = "Phase",reduction = "scvitsne")
+```
+
+
+```{r fig.height=9,fig.width=11}
+FeaturePlot(immune.combined, features = c("Top2a","Agt","Lmo3","Foxl1"),reduction = "scvitsne")
+FeaturePlot(immune.combined, features = c("Top2a","Agt","Lmo3","Foxl1"),reduction = "scviumap")
+```
+
+# Top expressed genes in each cluster
+
+```{r fig.width=6,fig.height=6}
+for (i in levels(immune.combined@active.ident)) {
+  print(plotHighestExprs(as.SingleCellExperiment(subset(immune.combined,idents = i),assay = DefaultAssay(immune.combined)),colour_cells_by = cluster.resolution))
+}
+```
+
+```{r}
+expr.ave <- AverageExpression(immune.combined, assays = DefaultAssay(immune.combined))[[1]]
+expr.ave$gene <- rownames(expr.ave)
+expr.ave.melt <- reshape2::melt(expr.ave,id.vars = "gene", value.name = "expr",variable.name = "cluster")
+top_20_genes <- expr.ave.melt %>%
+  group_by(cluster) %>%
+  top_n(20,expr) %>%
+  arrange(cluster,desc(expr))
+
+DT::datatable(top_20_genes,  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 20, 
+                             autoWidth = TRUE,
+                             scrollX = FALSE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = FALSE,
+                             fixedColumns = FALSE)
+              )
+```
+
+
+
+# Cluster QC
+
+```{r fig.width=12,fig.height=8}
+qc.keys <- c(colnames(immune.combined@meta.data)[2:5],"scrublet.doublets.score")
+VlnPlot(immune.combined,features = qc.keys, pt.size = 0, ncol = 3) + NoLegend()
+```
+
+
+```{r fig.width=12,fig.height=16}
+markers <- c("Pdgfra","Epcam","Ptprc","Vwf","Pdgfrb","Nrxn1",'Rgs5','Acta2','Cd34','Il33','Il1rl1','Lgr5')
+DefaultAssay(immune.combined) <- "RNA"
+VlnPlot(immune.combined,features = markers, pt.size = 0, ncol = 3) + NoLegend()
+```
+
+
+```{r fig.width=17,fig.height=12}
+cds@reductions$scvitsne@key <- "SCVItSNE_"
+colnames(cds@reductions$scvitsne@cell.embeddings) <- paste0("SCVI",colnames(cds@reductions$scvitsne@cell.embeddings))
+cds@reductions$scviumap@key <- "SCVIUMAP_"
+colnames(cds@reductions$scviumap@cell.embeddings) <- paste0("SCVI", colnames(cds@reductions$scviumap@cell.embeddings))
+
+FeaturePlot(immune.combined,features = markers,reduction = "scviumap") & NoLegend()
+```
+
+```{r fig.width=24,fig.height=14}
+FeaturePlot(immune.combined,features = qc.keys,reduction = "scviumap")
+```
+
+```{r}
+colnames(immune.combined@meta.data)[grepl("^RNA_snn_res",colnames(immune.combined@meta.data))] <- 
+  paste("Subset_SCVI_",colnames(immune.combined@meta.data)[grepl("^RNA_snn_res",colnames(immune.combined@meta.data))],sep = "")
+```
+
+# save data
+
+```{r}
+sampleName <- basename(rds.file)
+saveRDS(immune.combined, file = paste("./4.1-Merged-Rds/",sampleName,sep = ""))
+```
+
+# save embedings and annotatons to orign rds file
+
+```{r}
+# if ( !dir.exists(Results.dir)) {
+#   dir.create(Results.dir,recursive = TRUE)
+# }
+# 
+# sampleName <- "Subset-Foxl1"
+# saveRDS(immune.combined, file = paste(Results.dir,"/",sampleName,".rds",sep = ""))
+```
+
+```{r}
+# cds[["scviumap"]] <- immune.combined@reductions$umap
+# DimPlot(cds, reduction = "scviumap", pt.size = 0.5)
+# cds[["scvitsne"]] <- immune.combined@reductions$tsne
+# DimPlot(cds, reduction = "scvitsne", pt.size = 0.5)
+# cds[["scvi"]] <- immune.combined@reductions$scvi
+# DimPlot(cds, reduction = "scvi", pt.size = 0.5)
+# cds@meta.data[,paste("scvi",grep("^RNA",colnames(immune.combined@meta.data),value = TRUE),sep = "_")] <-
+#   immune.combined@meta.data[,grep("^RNA",colnames(immune.combined@meta.data),value = TRUE)]
+# # project each dim to genes
+# cds <- ProjectDim(cds, reduction = "scvi",dims.print = 1:10)
+# saveRDS(cds, file = rds.file)
+```
+
+
+
+
+

@@ -1,0 +1,133 @@
+---
+title: "Merge-all-by-seurat-fastMNN"
+author: "Zhang Yongchao"
+date: "November 18, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = -1,warning = -1)
+```
+
+```{r}
+sampleName <- "Merge-Total-Seurat-fastMNN"
+```
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(cowplot))
+suppressMessages(library(ggplot2))
+suppressMessages(library(ggpubr))
+suppressMessages(library(harmony))
+library(SeuratWrappers)
+```
+
+# import and merge
+
+## construct sample list
+```{r}
+rds.files <- grep("removed.rds$",list.files("../../../Single-Sample/Pipeline-CellBender-Seurat-Doubletfinder/MT-20/",full.names = TRUE),value = TRUE)
+obj.list <- lapply(rds.files, function(pbmc){
+  message("* Processing sample: ",pbmc)
+  cds <- readRDS(pbmc)
+  return(cds)
+})
+obj.list
+```
+## merge data
+
+```{r}
+immune.combined <- merge(obj.list[[1]], obj.list[-1])
+```
+
+```{r fig.width=12,fig.height=3}
+VlnPlot(immune.combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),ncol = 3,group.by = "orig.ident",pt.size = 0.01)
+VlnPlot(immune.combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),ncol = 3,group.by = "orig.ident",pt.size = 0)
+```
+
+```{r fig.width=10,fig.height=4}
+plot1 <- FeatureScatter(immune.combined, feature1 = "nCount_RNA", feature2 = "percent.mt",group.by = "orig.ident")
+plot2 <- FeatureScatter(immune.combined, feature1 = "nCount_RNA", feature2 = "nFeature_RNA",group.by = "orig.ident")
+plot1 + plot2
+```
+
+## check sample sex info
+
+```{r fig.width=8,fig.height=4}
+VlnPlot(immune.combined,features = c("XIST","RPS4Y1"),group.by = "orig.ident",pt.size = 0.001)
+```
+
+## Remove pANN info from meta.data
+
+```{r}
+immune.combined@meta.data[,grepl("^(pANN)|(DF.classifications)",colnames(immune.combined@meta.data))] <- NULL
+```
+
+```{r}
+#immune.combined@meta.data$marker <- unlist(lapply(strsplit(immune.combined@meta.data$orig.ident,split = "-"),"[",2))
+immune.combined@meta.data$type <-  substring(immune.combined@meta.data$orig.ident,2,2)
+immune.combined@meta.data$subject <- paste("s",substring(immune.combined@meta.data$orig.ident,3,3),sep="")
+immune.combined@meta.data$sex <- ifelse(immune.combined@meta.data$subject == "s6","male","female")
+table(immune.combined@meta.data$orig.ident)
+table(immune.combined@meta.data$type)
+table(immune.combined@meta.data$subject)
+table(immune.combined@meta.data$sex)
+```
+
+## modify cluster names
+
+```{r}
+colnames(immune.combined@meta.data)[grepl("^RNA_snn",colnames(immune.combined@meta.data))] <- gsub("^RNA","old_without_doublets_RNN",colnames(immune.combined@meta.data)[grepl("^RNA_snn",colnames(immune.combined@meta.data))])
+```
+
+## Perform an integrated analysis
+```{r}
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+immune.combined <- CellCycleScoring(immune.combined, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+# immune.combined <- NormalizeData(immune.combined)
+immune.combined <- SCTransform(immune.combined,vars.to.regress = c("S.Score", "G2M.Score","percent.mt","sex"))
+immune.combined <- FindVariableFeatures(immune.combined, selection.method = "vst", nfeatures = 2000,assay = "SCT")
+immune.combined <- RunFastMNN(object.list = SplitObject(immune.combined, split.by = 'orig.ident'),assay = "SCT")
+immune.combined <- RunUMAP(immune.combined, reduction = "mnn", dims = 1:50,assay = "SCT")
+immune.combined <- RunTSNE(immune.combined, reduction = "mnn", dims = 1:50,assay = "SCT")
+immune.combined <- FindNeighbors(immune.combined, reduction = "mnn", dims = 1:30,assay = "SCT") %>% FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6),assay = "SCT")
+```
+
+```{r}
+# s.genes <- cc.genes$s.genes
+# g2m.genes <- cc.genes$g2m.genes
+# 
+# 
+# immune.combined <- NormalizeData(immune.combined)
+# immune.combined <- FindVariableFeatures(immune.combined, selection.method = "vst", nfeatures = 4000)
+# immune.combined <- CellCycleScoring(immune.combined, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+# immune.combined <- ScaleData(immune.combined, vars.to.regress = c("S.Score", "G2M.Score","percent.mt","nCount_RNA","sex"), verbose = FALSE)
+# immune.combined <- RunPCA(immune.combined, features = VariableFeatures(immune.combined), npcs = 30, verbose = FALSE)
+# immune.combined <- RunHarmony(immune.combined, group.by.vars = "orig.ident")
+# immune.combined <- RunUMAP(immune.combined, reduction = "harmony", dims = 1:30)
+# immune.combined <- RunTSNE(immune.combined, reduction = "harmony", dims = 1:30)
+# immune.combined <- FindNeighbors(immune.combined, reduction = "harmony", dims = 1:30) %>% FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6))
+```
+
+```{r}
+Idents(immune.combined) <- "SCT_snn_res.0.6"
+DimPlot(immune.combined,label = TRUE)
+DimPlot(immune.combined,label = TRUE, reduction = "tsne")
+
+FeaturePlot(immune.combined,features = c("ACTA2","THY1","PDGFRA","PDGFRB"))
+FeaturePlot(immune.combined,features = c("PDGFRA","EPCAM","PTPRC","CD19"))
+```
+
+## save data
+
+```{r}
+saveRDS(immune.combined, file = paste(sampleName,".rds",sep = ""))
+```
+
+
+
+
+

@@ -1,0 +1,112 @@
+---
+title: "Step5.2.4 Downstream Analysis - RaceID-StemID"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+>[dgrun/RaceID3_StemID2_package](https://github.com/dgrun/RaceID3_StemID2_package)
+
+**RaceID algorithm**
+
+RaceID is a clustering algorithm for the identification of cell types from single-cell RNA-sequencing data. **It was specifically designed for the detection of rare cells which correspond to outliers in conventional clustering methods.** The package contains RaceID3, the most recently published version of this algorithm, and StemID2, an algorithm for the identification of lineage trees based on RaceID3 analysis. RaceID3 utilizes single cell expression data, and was designed to work well with quantitative single-cell RNA-seq data incorporating unique molecular identifiers. It requires a gene-by-cell expression matrix as input and **produces a clustering partition representing cell types. StemID2 assembles these cell types into a lineage tree.** The RaceID package (>= v0.1.4) also contains functions for a VarID analysis. VarID comprises a sensitive clustering method utilizing pruned k-nearest neighbor networks, connecting only cells with links supported by a background model of gene expression. These pruned k-nearest neighbor networks further enable the definition of homogenous neighborhoods for the quantification of local gene expression variability in cell state space.
+
+**Parameters:**
+
+```{r}
+# Results.dir <- "./5.2-Downstream-Analysis/RaceID"
+```
+
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(RaceID))
+```
+
+```{r fig.width=6,fig.height=6}
+cds <- readRDS(list.files("./5.1-Rds",pattern = "rds$",full.names = TRUE))
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+Idents(cds) <- cluster.resolution
+DimPlot(cds,label = TRUE) + NoLegend()
+```
+
+# RaceID
+
+```{r}
+cds_df <- as.matrix(cds@assays[[DefaultAssay(cds)]]@counts)
+```
+
+```{r}
+sc <- SCseq(cds_df)
+sc <- filterdata(sc,mintotal=1)
+```
+
+```{r}
+part1 <- as.character(cds@meta.data[["day"]])
+part2 <- as.numeric(cds@meta.data[[cluster.resolution]])
+d <- as.matrix(dist(cds@reductions[["pca"]]@cell.embeddings))
+umap <- as.data.frame(cds@reductions[["umap"]]@cell.embeddings)
+names(part1) <- colnames(d)
+names(part2) <- colnames(d)
+```
+
+```{r}
+n <- colnames(sc@ndata)
+part1 <- part1[n]
+part2 <- part2[n]
+
+# partition
+sc@cpart <- sc@cluster$kpart <- part2
+# distances
+sc@distances <- d[n,n]
+# tsne/umap
+sc@umap <- umap[n,]
+
+# cluster medoids
+sc@medoids <- compmedoids(sc, sc@cpart)
+
+# colors for clusters
+set.seed(12345)
+# sc@fcol <- my_color_palette_hee
+```
+
+```{r}
+ltr1 <- Ltree(sc)
+ltr1 <- compentropy(ltr1)
+ltr1 <- projcells(ltr1,nmode=TRUE,fr=FALSE,knn=3)
+
+ltr1 <- lineagegraph(ltr1)
+ltr1 <- comppvalue(ltr1, pthr=0.05)
+
+plotgraph(ltr1,showCells=FALSE, scthr=0.7, tp=1)
+x <- compscore(ltr1, scthr=0.7)
+```
+
+```{r}
+library(scales)
+
+identities_cds <- levels(cds@active.ident)
+my_color_palette_hee <- hue_pal()(length(identities_cds))
+
+ltr1@sc@fcol <- my_color_palette_hee
+
+plotdistanceratio(ltr1)
+plotspantree(ltr1)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

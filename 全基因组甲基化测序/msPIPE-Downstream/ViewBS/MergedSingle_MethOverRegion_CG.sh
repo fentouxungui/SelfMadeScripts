@@ -1,0 +1,1 @@
+Rscript /data0/reference/software/miniconda-envs/ViewBS/bin/lib/Meth/OverRegion.R --input /data3/Xilab-Data-Analysis/zhangyc/WGBS/results/6_Downstream_Analysis/ViewBS/MergedSingle_MethOverRegion_CG.txt --xlab Gene --height 10 --width 10 --adjustXaxis 10  --output /data3/Xilab-Data-Analysis/zhangyc/WGBS/results/6_Downstream_Analysis/ViewBS/MergedSingle_MethOverRegion_CG.pdf

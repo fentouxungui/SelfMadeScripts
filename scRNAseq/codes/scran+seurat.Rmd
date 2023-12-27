@@ -1,0 +1,122 @@
+---
+title: "scran+seurat"
+author: "Zhang Yongchao"
+date: "March 2, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(DropletUtils)
+library(SingleCellExperiment)
+library(scater)
+library(scran)
+```
+
+```{r}
+sce <- read10xCounts("../../../../CellRanger-Outputs/PH3-CD326/outs/filtered_feature_bc_matrix/")
+colData(sce)
+rowData(sce)
+```
+
+```{r}
+is.mito <- grepl("^MT",rowData(sce)$Symbol)
+sce <- addPerCellQC(sce, subsets=list(Mito=is.mito))
+colnames(colData(sce))
+df <- perCellQCMetrics(sce, subsets=list(Mito=is.mito))
+df
+```
+```{r}
+hist(sce@colData$subsets_Mito_percent,breaks = 100)
+hist(sce@colData$detected,breaks = 100)
+```
+
+```{r}
+qc.mito <- df$subsets_Mito_percent > 20
+qc.nexprs <- df$detected < 1e3
+discard <- qc.nexprs | qc.mito
+table(discard)
+```
+
+```{r}
+qc.lib2 <- isOutlier(df$sum, log=TRUE, type="lower")
+qc.nexprs2 <- isOutlier(df$detected, log=TRUE, type="lower")
+qc.mito2 <- isOutlier(df$subsets_Mito_percent, type="higher")
+
+attr(qc.lib2, "thresholds")
+attr(qc.nexprs2, "thresholds")
+attr(qc.mito2, "thresholds")
+```
+
+
+```{r}
+lost <- calculateAverage(counts(sce)[,!discard])
+kept <- calculateAverage(counts(sce)[,discard])
+library(edgeR)
+logged <- cpm(cbind(lost, kept), log=TRUE, prior.count=2)
+logFC <- logged[,1] - logged[,2]
+abundance <- rowMeans(logged)
+```
+```{r}
+plot(abundance, logFC, xlab="Average count", ylab="Log-FC (lost/kept)", pch=16)
+points(abundance[is.mito], logFC[is.mito], col="dodgerblue", pch=16)
+```
+```{r}
+sce<- sce[,!discard]
+sce
+```
+
+```{r}
+# library(scuttle)
+# qcstats <- perCellQCMetrics(sce)
+# qcfilter <- quickPerCellQC(qcstats, percent_subsets=is.mito)
+# sce.filtered.2 <- sce[,!qcfilter$discard]
+# summary(qcfilter$discard)
+```
+
+
+```{r}
+library(scran)
+clusters <- quickCluster(sce)
+sce <- computeSumFactors(sce, clusters=clusters)
+summary(sizeFactors(sce))
+```
+```{r}
+sce <- logNormCounts(sce)
+```
+
+
+```{r}
+dec <- modelGeneVar(sce)
+plot(dec$mean, dec$total, xlab="Mean log-expression", ylab="Variance")
+curve(metadata(dec)$trend(x), col="blue", add=TRUE)
+```
+
+```{r}
+# Get the top 10% of genes.
+top.hvgs <- getTopHVGs(dec, prop=0.1)
+```
+
+
+```{r}
+# Running the PCA with the 10% of HVGs.
+library(scater)
+sce <- runPCA(sce, subset_row=top.hvgs)
+reducedDimNames(sce)
+```
+```{r}
+library()
+```
+
+
+
+
+
+
+
+
+
+

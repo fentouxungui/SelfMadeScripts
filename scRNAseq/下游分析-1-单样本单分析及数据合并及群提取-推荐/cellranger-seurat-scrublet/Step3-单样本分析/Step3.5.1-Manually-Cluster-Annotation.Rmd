@@ -1,0 +1,93 @@
+---
+title: "Step3.5 Manually Cluster Annotation"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+  warning = FALSE,
+  collapse = TRUE)
+```
+
+```{r}
+Results.dir <- "./3.5-Cluster-Annotation"
+```
+
+
+```{r}
+suppressMessages(library(Seurat))
+```
+
+
+# import data and set parameters
+
+```{r}
+rds.file <- list.files("./3.3-Clean-Cells-Rds",pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+```
+
+**Parameters:**
+
+```{r fig.width=6,fig.height=6}
+# Based on resolution 0.6
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+# cluster.resolution <- "RNA_snn_res.0.6"
+Idents(cds) <- cluster.resolution
+DimPlot(cds,label = TRUE) + NoLegend()
+```
+
+# General comment
+
+```{r}
+ann.col <- "Annotation.Manually.General"
+save.file <- paste(Results.dir,"cluster-annotation.csv",sep = "/")
+if ( !ann.col %in% colnames(cds@meta.data) & !file.exists(save.file)) {
+  # if only one celltype
+  # cds[[ann.col]] <- "Epithelial cells"
+  # cds[[ann.col]]<- as.factor(cds[[ann.col]])
+  anno.demo <- data.frame(ClusterID = levels(cds@active.ident),
+                          Markers = "",
+                          CellType = "")
+  write.csv(anno.demo,file = save.file,row.names = FALSE)
+}
+```
+
+**import the csv file and edit with cluster annotation info**
+
+```{r}
+if ( !ann.col %in% colnames(cds@meta.data) ) {
+  cluster.df <- read.csv(save.file,stringsAsFactors = FALSE)
+  if ( "" %in% cluster.df$CellType ) {
+    stop("Please check the cluster annotation file!")
+  }
+  new.cluster.ids <- cluster.df$CellType
+  names(new.cluster.ids) <- cluster.df$ClusterID
+  cds <- RenameIdents(cds, new.cluster.ids)
+  cds[[ann.col]] <- Idents(cds)
+  Idents(cds) <- cluster.resolution
+}
+```
+
+```{r fig.width=7,fig.height=6}
+DimPlot(cds,group.by = ann.col,label = TRUE) + NoLegend()
+```
+
+# Save Final results
+
+```{r}
+saveRDS(cds,file = rds.file)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

@@ -1,0 +1,193 @@
+---
+title: "Step3.4.1 Seurat Downstream analysis - GeneSortR"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE,
+  fig.align = "center")
+```
+
+```{r}
+Clean.rds.dir <- "./3.3-Clean-Cells-Rds/"
+```
+
+> [mahmoudibrahim/genesorteR](https://github.com/mahmoudibrahim/genesorteR)
+
+**genesorteR: Feature Ranking for Single Cell Data**
+
+genesorteR is an R package for single cell data analysis. It calculates **a specificity score to rank all genes in each cell cluster**. It can then use this ranking to find sets of marker genes or to find highly variable or differentially expressed genes. genesorteR is applicable to scRNA-Seq data as well as other sparse single cell data like scATAC-Seq
+
+**What genesorteR Can Do**
+
+- Rank genes (scRNA-Seq) or open chromatin regions (snATAC-Seq) by "specificity" in cell clusters
+
+- Find small sets of marker genes and differentially expressed / highly variable genes or accessible regions
+
+- Cluster genes/open chromatin regions and make heatmap summaries of single cell data
+
+```{r}
+suppressMessages(library(genesorteR)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(ggplot2))
+suppressMessages(library(igraph))
+suppressMessages(library(ggraph))
+suppressMessages(library(msigdbr))
+suppressMessages(library(clusterProfiler))
+```
+
+
+# import data and set parameters
+
+```{r}
+rds.file <- list.files(Clean.rds.dir,pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+```
+
+**Parameters:**
+
+```{r}
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+# cluster.resolution <- "RNA_snn_res.0.6"
+Idents(cds) <- cluster.resolution
+```
+
+# Find Cluster Specific Markers
+
+```{r fig.width=10,fig.height=30}
+#get specificity scores for each cell type
+sg = sortGenes(cds@assays[[DefaultAssay(cds)]]@data, Idents(cds))
+
+head(sg$specScore) #specificity scores for each gene in each cluster
+
+#define a small set of markers
+mm = getMarkers(sg, quant = 0.99)
+
+#cluster genes and make a heatmap
+pp = plotMarkerHeat(sg$inputMat, sg$inputClass, mm$markers, clusterGenes=TRUE, outs = TRUE)
+
+split(names(pp$gene_class_info),unname(pp$gene_class_info)) #gene clusters
+```
+
+## Plot Markers
+
+```{r fig.width=10,fig.height=20}
+cds <- ScaleData(cds, features = rownames(cds))
+DoHeatmap(cds,features = mm$markers)
+```
+
+```{r fig.width=40,fig.height=8}
+DotPlot(cds,features = mm$markers) + RotatedAxis()
+```
+
+## Build Cell Cluster Correlation Network
+
+>[Visualize single cell data in R using genesorteR & ggraph](https://github.com/mahmoudibrahim/genesorteR/wiki/Visualize-single-cell-data-in-R-using-genesorteR-&-ggraph)
+
+```{r}
+#get highly variable genes between cell clusters
+pv = genesorteR::getPValues(sg)
+hvg = names(which(apply(pv$adjpval, 1, function(x) any(x < 0.05))))
+
+#calculate cluster correlations based on highly variable genes
+pc = genesorteR::plotCorrelationHeat(sg, markers = hvg, outs = TRUE)$corr
+
+#set diagonal entries to 0 (network lingo: no self-loops)
+diag(pc) = 0
+
+#set negative entries to 0 (if two clusters' correlation is below 0.1, they are not connected. You can experiment with different cutoffs.)
+pc[pc < 0.1] = 0
+
+corr = genesorteR::plotCorrelationHeat(sg, markers = unlist(plotTopMarkerHeat(sg, top_n = 100, plotheat = FALSE, outs = TRUE)), displayNumbers=FALSE, outs = TRUE)
+```
+## Visualize the Correlation Network
+
+```{r fig.height=8,fig.width=8}
+#create an igraph network object from the weighted adjacency matrix stored in pc
+net = igraph::graph_from_adjacency_matrix(pc, weighted = TRUE)
+
+#remove multiple edges (meaning keep only one connection between each two cell clusters)
+net = igraph::simplify(net, edge.attr.comb = "max")
+
+#let's give the clusters names (identified in the Seurat tutorial)
+# cluster_name = c("Naive T", "Memory T", "CD14+ Mono", "B", "CD8+ T", "FCGR3A+ Mono", "NK", "DC", "Platelet")
+cluster_name = levels(Idents(cds))
+  
+#Some information to use in our plots
+Correlation = E(net)$weight
+Percent_of_Cells = as.vector(sg$classProb*100)
+ 
+#plot network with ggraph
+set.seed(111)
+lay = ggraph::create_layout(net, layout = "fr")
+ggraph(lay) + 
+  geom_edge_link(aes(alpha = Correlation), edge_colour = "gray") + 
+  geom_node_point(aes(size = Percent_of_Cells), colour = "black") + 
+  geom_node_text(aes(label = cluster_name), repel=TRUE) +
+  theme(panel.background = element_blank())
+```
+
+We can also color the clusters by some other information. Here we can use the major immune cell types, Please refer the method!
+
+## Calculate and Plot Pathway Enrichment
+
+>[From Cluster to Pathway Enrichment in Large scRNA Seq Data](https://github.com/mahmoudibrahim/genesorteR/wiki/From-Cluster-to-Pathway-Enrichment-in-Large-scRNA-Seq-Data)
+
+Now that we saw how to quickly define a ranking for each gene per cluster using genesorteR, we can use this information to generate pathway enrichment analysis. We will use pathway information compiled by MSigDB through the msigdbr R package. Specifically, we will select the KEGG pathway gene sets. Check out MSigDB homepage and the package documentation for more information about the different gene sets available.
+
+```{r fig.width=10,fig.height=8}
+#Get KEGG information from MSigDB
+
+msig = msigdbr::msigdbr(species = "Mus musculus", category = "C2")
+msig = data.frame(msig$gs_name[which(msig$gs_subcat == "CP:KEGG")], msig$gene_symbol[which(msig$gs_subcat == "CP:KEGG")])
+
+#now get the top 200 genes per cell cluster
+topMarkerGenes = genesorteR::plotTopMarkerHeat(sg, top_n = 200, newOrder = corr$pheat$tree_row$order, outs = TRUE, plotheat = FALSE)
+
+#now we will use the clusterProfiler to calculate enirchment for each cell cluster
+
+
+#calculate enrichment for all clusters at once
+cp = clusterProfiler::compareCluster(geneCluster = topMarkerGenes, fun = "enricher", TERM2GENE = msig)
+
+#plot the result as a dot plot, showing 4 terms per cell cluster (here the order of the clusters is the same as shown in the heatmaps above)
+clusterProfiler::dotplot(cp, showCategory = 4, font.size = 8)
+```
+We can also plot the results as a heatmap of q-values.
+
+```{r fig.width=8,fig.height=10}
+#filter results by q-value
+qvalue_cutoff = 0.05
+cp@compareClusterResult = cp@compareClusterResult[which(cp@compareClusterResult$qvalue < qvalue_cutoff),]
+
+#reorganize the qvalue result in matrix form, single cell clusters in columns, pathways in rows
+cp_mat = xtabs(qvalue ~ ID + Cluster, data = cp@compareClusterResult)
+
+#transform q-value so that low values (highly significant) have higher numbers
+cp_mat = -log10(cp_mat)
+cp_mat[is.infinite(cp_mat)] = 0
+
+#any q-value lower than 10e-4 is clamped to produce a more readable heatmap
+cp_mat[cp_mat > 4] = 4
+
+#plot the results using pheatmap (pheatmap will have been installed along with genesorteR)
+pheatmap::pheatmap(cp_mat, color = colorRampPalette(c("white","steelblue"))(n=100), fontsize = 6.8)
+```
+
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

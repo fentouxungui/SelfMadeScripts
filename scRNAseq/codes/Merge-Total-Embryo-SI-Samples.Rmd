@@ -1,0 +1,101 @@
+---
+title: "Merge-Total-Embryo-SI-Samples"
+author: "Zhang Yongchao"
+date: "July 10, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+```
+
+```{r}
+rds.path <- "../SingleSample/"
+ESIs <- grep("E_SI_D.*rds$",list.files(rds.path),value = TRUE)
+```
+```{r}
+ifnb.list <- list()
+for (rds.file in ESIs) {
+  print(paste("processing",rds.file,"!"))
+  tmp <- readRDS(paste(rds.path,rds.file,sep = ""))
+  ifnb.list[[rds.file]] <- tmp
+  rm(tmp)
+}
+str(ifnb.list,max.level = 1)
+```
+
+
+```{r}
+immune.anchors <- FindIntegrationAnchors(object.list = ifnb.list, dims = 1:20)
+immune.combined <- IntegrateData(anchorset = immune.anchors, dims = 1:20)
+```
+
+```{r fig.width=6,fig.height=6}
+DefaultAssay(immune.combined) <- "integrated"
+
+# Run the standard workflow for visualization and clustering
+immune.combined <- ScaleData(immune.combined, verbose = FALSE, features = rownames(immune.combined))
+
+s.genes <- readRDS("mouse.s.genes.rds")
+g2m.genes <- readRDS("mouse.g2m.genes.rds")
+immune.combined <- CellCycleScoring(immune.combined, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+immune.combined <- RunPCA(immune.combined, features = c(s.genes, g2m.genes))
+DimPlot(immune.combined,label = TRUE)
+```
+
+```{r}
+immune.combined <- ScaleData(immune.combined, vars.to.regress = c("S.Score", "G2M.Score"), features = rownames(immune.combined))
+immune.combined <- RunPCA(immune.combined, npcs = 30, verbose = FALSE)
+```
+
+```{r}
+
+# t-SNE and Clustering
+immune.combined <- RunUMAP(immune.combined, reduction = "pca", dims = 1:20)
+immune.combined <- RunTSNE(immune.combined, reduction = "pca", dims = 1:20)
+immune.combined <- FindNeighbors(immune.combined, reduction = "pca", dims = 1:20)
+immune.combined <- FindClusters(immune.combined, resolution = 0.5)
+```
+
+
+```{r fig.width=6,fig.height=6}
+DimPlot(immune.combined,label = TRUE)
+DimPlot(immune.combined,label = TRUE, reduction = "tsne")
+```
+```{r}
+DefaultAssay(immune.combined) <- "RNA"
+FeaturePlot(immune.combined,features = c("Epcam","Pdgfra","Clca1","Dclk1","percent.mt","nFeature_RNA"),label = TRUE)
+```
+
+```{r}
+immune.combined@meta.data$Day <- substring(immune.combined@meta.data$orig.ident,7,9)
+```
+
+```{r}
+DimPlot(immune.combined,label = TRUE, split.by = "Day")
+DimPlot(immune.combined,label = TRUE, reduction = "tsne", split.by = "Day")
+```
+
+```{r}
+all.markers <- FindAllMarkers(immune.combined)
+write.csv(all.markers,file = "cluster.markers.csv")
+```
+
+
+```{r}
+saveRDS(immune.combined,file = "merged.mouse.Embryo.SI.rds")
+```
+
+
+
+
+
+
+
+
+
+

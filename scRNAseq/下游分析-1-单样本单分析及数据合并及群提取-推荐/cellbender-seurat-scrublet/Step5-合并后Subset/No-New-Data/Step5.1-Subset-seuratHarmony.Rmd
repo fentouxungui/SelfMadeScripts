@@ -1,0 +1,626 @@
+---
+title: "Step 5.1 Subset samples by Seurat Harmony"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+Method Refer:
+
+>[Seurat](https://satijalab.org/seurat/)
+
+>[SeuratWrappers](https://github.com/satijalab/seurat-wrappers)
+
+>[Integration of datasets using Harmony](http://htmlpreview.github.io/?https://github.com/satijalab/seurat-wrappers/blob/master/docs/harmony.html)
+
+**Parameters:**
+
+```{r}
+Results.dir <- "./5.1-Rds"
+```
+
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(cowplot))
+suppressMessages(library(ggplot2))
+suppressMessages(library(ggpubr))
+suppressMessages(library(clustree))
+suppressMessages(library(harmony))
+suppressMessages(library(scater))
+suppressMessages(library(DT))
+```
+
+# Subset Cells
+
+```{r fig.width=6,fig.height=6}
+cds <- readRDS(list.files("../../4.1-Merged-Rds",pattern = "rds$",full.names = TRUE))
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+Idents(cds) <- cluster.resolution
+DimPlot(cds,label = TRUE) + NoLegend()
+DimPlot(cds,label = TRUE,group.by = "Annotation.Manaually.Main.Cell.Type") + NoLegend()
+```
+
+```{r}
+immune.combined <- subset(cds, subset = Annotation.Manaually.Main.Cell.Type == "Immune")
+immune.combined
+DimPlot(immune.combined,label = TRUE) + NoLegend()
+```
+
+
+```{r}
+DefaultAssay(immune.combined) <- "CellBender"
+```
+
+# Merged QC - Pre Filter
+
+```{r fig.width=24,fig.height=20}
+qc.keys <- c(colnames(immune.combined@meta.data)[2:10],"scrublet.doublets.score")
+VlnPlot(immune.combined, features = qc.keys, ncol = 4,group.by = "orig.ident",pt.size = 0.01)
+VlnPlot(immune.combined, features = qc.keys, ncol = 4,group.by = "orig.ident",pt.size = 0)
+```
+
+```{r fig.width=24,fig.height=20}
+VlnPlot(immune.combined, features = qc.keys, ncol = 4,group.by = "day",pt.size = 0.01)
+VlnPlot(immune.combined, features = qc.keys, ncol = 4,group.by = "day",pt.size = 0)
+```
+
+
+```{r fig.width=15,fig.height=13}
+metadata <- immune.combined@meta.data
+  
+# Visualize the number UMIs/transcripts per cell
+p1 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_RNA, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p2 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_CellBender, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p3 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_CellBender_RemoveMT, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5))
+
+# Visualize the distribution of features detected per cell
+p4 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nFeature_RNA, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+p5 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nFeature_CellBender, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+
+# Visualize the distribution of mitochondrial gene expression detected per cell
+p6 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=percent.mt, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(20,30,40,50,60,70))
+
+
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+p7 <- metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.7,0.75,0.8,0.85)) + NoLegend()
+
+# UMI difference of CellRanger and CellBender
+p8 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(50,100)) + NoLegend()
+
+# UMI difference percent of CellRanger and CellBender
+p9 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff_percent, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.01,0.05,0.1))
+
+wrap_plots(p1,p2,p3,
+           p4,p5,p6,
+           p7,p8,p9)
+```
+
+```{r fig.width=11,fig.height=9}
+# Visualize the number UMIs/transcripts per cell
+p1 <- metadata %>% 
+  	ggplot(aes( x=nCount_RNA, color= day, fill= day)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p2 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, color= day, fill= day)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p3 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, color= day, fill= day)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5))
+
+# Visualize the distribution of features detected per cell
+p4 <- metadata %>% 
+  	ggplot(aes(x=nFeature_RNA, color= day, fill= day)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+p5 <- metadata %>% 
+  	ggplot(aes(x=nFeature_CellBender, color = day, fill= day)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+
+# Visualize the distribution of mitochondrial gene expression detected per cell
+p6 <- metadata %>% 
+  	ggplot(aes(x=percent.mt, color= day,  fill= day)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(20,30,40,50,60,70))
+
+
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+p7 <- metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = day, fill= day)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.7,0.75,0.8,0.85)) + NoLegend()
+
+# UMI difference of CellRanger and CellBender
+p8 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff, color = day, fill= day)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(50,100)) + NoLegend()
+
+# UMI difference percent of CellRanger and CellBender
+p9 <- metadata %>%
+  	ggplot(aes(x=nCounts_Diff_percent, color = day, fill= day)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.01,0.05,0.1))
+
+wrap_plots(p1,p2,p3,
+           p4,p5,p6,
+           p7,p8,p9)
+```
+
+
+
+```{r fig.width=12,fig.height=8}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+x.line <- c(1000,2000,3000,5e4,1e5)
+y.line <- c(300,500,700)
+
+p1 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_RNA, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p2 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_RNA, color=log10GenesPerUMI)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p3 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_RNA, color=nCounts_Diff)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p4 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender, y=nFeature_RNA, color=nCounts_Diff_percent)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+wrap_plots(p1,p2,
+           p3,p4)
+
+
+p5 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_RNA, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p6 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_RNA, color=log10GenesPerUMI)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p7 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_RNA, color=nCounts_Diff)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+p8 <- metadata %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_RNA, color=nCounts_Diff_percent)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = x.line) +
+  	geom_hline(yintercept = y.line)
+
+wrap_plots(p5,p6,
+           p7,p8)
+```
+
+
+```{r fig.width=16,fig.height=8}
+plot1 <- FeatureScatter(immune.combined, feature1 = paste("nCount", DefaultAssay(immune.combined),sep = "_"), feature2 = "percent.mt",group.by = "orig.ident") + NoLegend()
+plot2 <- FeatureScatter(immune.combined, feature1 = paste("nCount", DefaultAssay(immune.combined),sep = "_"), feature2 = paste("nFeature", DefaultAssay(immune.combined),sep = "_"), group.by = "orig.ident")
+plot1 + plot2
+
+plot1 <- FeatureScatter(immune.combined, feature1 = paste("nCount", DefaultAssay(immune.combined),"RemoveMT",sep = "_"), feature2 = "percent.mt", group.by = "orig.ident") + NoLegend()
+plot2 <- FeatureScatter(immune.combined, feature1 = paste("nCount", DefaultAssay(immune.combined),"RemoveMT",sep = "_"), feature2 = paste("nFeature", DefaultAssay(immune.combined),sep = "_"), group.by = "orig.ident")
+plot1 + plot2
+
+plot1 <- FeatureScatter(immune.combined, feature1 = paste("nCount", DefaultAssay(immune.combined),sep = "_"), feature2 = "percent.mt",group.by = "day") + NoLegend()
+plot2 <- FeatureScatter(immune.combined, feature1 = paste("nCount", DefaultAssay(immune.combined),sep = "_"), feature2 = paste("nFeature", DefaultAssay(immune.combined),sep = "_"), group.by = "day")
+plot1 + plot2
+
+plot1 <- FeatureScatter(immune.combined, feature1 = paste("nCount", DefaultAssay(immune.combined),"RemoveMT",sep = "_"), feature2 = "percent.mt", group.by = "day") + NoLegend()
+plot2 <- FeatureScatter(immune.combined, feature1 = paste("nCount", DefaultAssay(immune.combined),"RemoveMT",sep = "_"), feature2 = paste("nFeature", DefaultAssay(immune.combined),sep = "_"), group.by = "day")
+plot1 + plot2
+```
+
+```{r fig.width=6,fig.height=6}
+plotHighestExprs(as.SingleCellExperiment(immune.combined,assay = DefaultAssay(immune.combined)),colour_cells_by = "orig.ident")
+plotHighestExprs(as.SingleCellExperiment(immune.combined,assay = DefaultAssay(immune.combined)),colour_cells_by = "day")
+plotHighestExprs(as.SingleCellExperiment(immune.combined,assay = DefaultAssay(immune.combined)),colour_cells_by = "stage")
+```
+
+# Filter Merged Samples
+
+```{r}
+# immune.combined <- subset(immune.combined, subset = nCount_RNA < 1e5 & nFeature_RNA > 700 & percent.mt < 20 & nCount_RNA > 3000)
+# immune.combined <- subset(immune.combined, percent.mt < 15 & nCount_RNA < 8e4)
+
+# Attention! do not use code bellow when run new data.
+# immune.combined <- subset(immune.combined, scrublet < 0.1)
+```
+
+# Merged QC - Post Filter
+
+```{r}
+# Code as Same as Pre filter
+```
+
+# Check sample sex info
+
+```{r fig.width=10,fig.height=6}
+VlnPlot(immune.combined,features = c("Xist"),group.by = "orig.ident",pt.size = 0.001)
+VlnPlot(immune.combined,features = c("Xist"),group.by = "orig.ident",pt.size = 0)
+VlnPlot(immune.combined,features = c("Xist"),group.by = "day",pt.size = 0.001)
+VlnPlot(immune.combined,features = c("Xist"),group.by = "day",pt.size = 0)
+```
+
+# Add Sample Annotations and cells numbers
+
+```{r}
+# immune.combined@meta.data$sex <- ifelse(as.character(immune.combined@meta.data$orig.ident) %in% c("E_LI_D115_B1", "E_LI_D115_B2", "P_LI_D1_B1", "P_LI_D1_B2", "P_LI_D21_B1"), "Most Male","Male and Female")
+# table(immune.combined@meta.data$sex)
+
+# Cell numbers by each annotation
+table(immune.combined@meta.data$orig.ident)
+table(immune.combined@meta.data$day)
+table(immune.combined@meta.data$stage)
+```
+
+# Modify old cluster names - Prefixed with Single
+
+```{r}
+colnames(immune.combined@meta.data)[grepl("(^S.Score$)|(^G2M.Score$)|(^Phase$)|(^CellBender_snn_res)|(^Annotation)",colnames(immune.combined@meta.data))] <- 
+  paste("Merge_",colnames(immune.combined@meta.data)[grepl("(^S.Score$)|(^G2M.Score$)|(^Phase$)|(^CellBender_snn_res)|(^Annotation)",colnames(immune.combined@meta.data))],sep = "")
+```
+
+## Perform an integrated analysis
+
+```{r fig.width=18,fig.height=7}
+s.genes <- readRDS("~/reference/Biology-Database/Cell-Cycles-Genes/Mouse/mouse.s.genes.rds")
+g2m.genes <- readRDS("~/reference/Biology-Database/Cell-Cycles-Genes/Mouse/mouse.g2m.genes.rds")
+# s.genes
+s.genes
+# g2m.genes
+g2m.genes
+
+
+immune.combined <- NormalizeData(immune.combined, assay = DefaultAssay(immune.combined))
+immune.combined <- FindVariableFeatures(immune.combined, selection.method = "vst", nfeatures = 3000, assay = DefaultAssay(immune.combined))
+# Remove mito genes from variable gnes
+grep("^mt-",VariableFeatures(immune.combined),value = TRUE)
+VariableFeatures(immune.combined) <- grep("^mt-",VariableFeatures(immune.combined),value = TRUE,invert = TRUE)
+# Remove Cell Cycle-Related Genes
+VariableFeatures(immune.combined) <- VariableFeatures(immune.combined)[! VariableFeatures(immune.combined) %in% c(s.genes,g2m.genes)]
+length(VariableFeatures(immune.combined))
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(immune.combined), 10)
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(immune.combined)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+```{r  fig.height=6,fig.width=7}
+immune.combined <- CellCycleScoring(immune.combined, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE, assay = DefaultAssay(immune.combined))
+immune.combined <- ScaleData(immune.combined, vars.to.regress = c("S.Score", "G2M.Score","percent.mt","nCount_RNA"), 
+                             features = VariableFeatures(immune.combined), verbose = FALSE, assay = DefaultAssay(immune.combined))
+
+immune.combined <- RunPCA(immune.combined, features = VariableFeatures(immune.combined), npcs = 30, verbose = FALSE, assay = DefaultAssay(immune.combined))
+# Examine and visualize PCA results a few different ways
+print(immune.combined[["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(immune.combined, dims = 1:2, reduction = "pca")
+```
+
+```{r fig.height=5,fig.width=6}
+DimPlot(immune.combined, reduction = "pca")
+```
+
+```{r fig.height=25,fig.width=15}
+DimHeatmap(immune.combined, dims = 1:15, cells = 500, balanced = TRUE)
+```
+
+```{r fig.width=6,fig.height=5}
+ElbowPlot(immune.combined)
+```
+
+```{r fig.width=6,fig.height=5}
+immune.combined <- RunHarmony(immune.combined, group.by.vars = "orig.ident", assay = DefaultAssay(immune.combined))
+ElbowPlot(immune.combined,reduction = "harmony")
+```
+
+```{r}
+immune.combined <- RunUMAP(immune.combined, reduction = "harmony", dims = 1:30,umap.method = "umap-learn",metric = "correlation", assay = DefaultAssay(immune.combined))
+immune.combined <- RunTSNE(immune.combined, reduction = "harmony", dims = 1:30, assay = DefaultAssay(immune.combined))
+immune.combined <- FindNeighbors(immune.combined, reduction = "harmony", dims = 1:30, assay = DefaultAssay(immune.combined)) %>% FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6), assay = DefaultAssay(immune.combined))
+```
+
+
+# Cell numbers in each resolution
+
+```{r}
+statics.cluster.cells <- function(seurat, keys = "(_snn_res)|(^Annotation)"){
+  test.data <- as.data.frame(as.matrix(seurat@meta.data[, grepl(keys,colnames(seurat@meta.data))]),stringsAsFactors = FALSE)
+  test.data$cell <- rownames(test.data)
+  rownames(test.data) <- NULL
+  test.data.melt <- reshape2::melt(test.data, id.vars = "cell",value.name = "cluster")
+  test.data.melt.dcast <- reshape2::dcast(test.data.melt,formula = cluster ~ variable,fun.aggregate = length)
+  test.data.melt.dcast$cluster <- as.numeric(test.data.melt.dcast$cluster)
+  test.data.melt.dcast <- arrange(test.data.melt.dcast,cluster)
+  rownames(test.data.melt.dcast) <- test.data.melt.dcast$cluster
+  test.data.melt.dcast$cluster <- NULL
+  return(test.data.melt.dcast)
+}
+DT::datatable(statics.cluster.cells(immune.combined, keys = paste("(^",DefaultAssay(immune.combined),"_snn_res)|(^Annotation)",sep = "")),  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 40, 
+                             autoWidth = TRUE,
+                             scrollX = TRUE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = TRUE,
+                             fixedColumns = TRUE)
+              )
+```
+
+# Choose Resolution
+
+```{r fig.height=10,fig.width=10}
+clustree(immune.combined@meta.data,prefix = paste(DefaultAssay(immune.combined),"_snn_res.",sep = ""))
+```
+
+```{r}
+cluster.resolution <- paste(DefaultAssay(immune.combined),"_snn_res.0.6",sep = "")
+# cluster.resolution <- "RNA_snn_res.0.6"
+Idents(immune.combined) <- cluster.resolution
+```
+
+```{r fig.width=8,fig.height=6}
+DimPlot(immune.combined,label = TRUE)
+DimPlot(immune.combined,label = TRUE,reduction = "tsne")
+
+DimPlot(immune.combined,group.by = "orig.ident")
+DimPlot(immune.combined,reduction = "tsne",group.by = "orig.ident")
+
+DimPlot(immune.combined,group.by = "day")
+DimPlot(immune.combined,reduction = "tsne",group.by = "day")
+```
+
+```{r fig.width=6,fig.height=5}
+DimPlot(immune.combined,group.by = "Phase")
+DimPlot(immune.combined,reduction = "tsne",group.by = "Phase")
+```
+
+```{r fig.height=9,fig.width=13}
+DimPlot(immune.combined,label = TRUE,split.by = "day",ncol = 4)
+```
+
+# Top expressed genes in each cluster
+
+```{r fig.width=6,fig.height=6}
+for (i in levels(immune.combined@active.ident)) {
+  print(plotHighestExprs(as.SingleCellExperiment(subset(immune.combined,idents = i),assay = DefaultAssay(immune.combined)),colour_cells_by = cluster.resolution))
+}
+```
+
+```{r}
+expr.ave <- AverageExpression(immune.combined, assays = DefaultAssay(immune.combined))[[1]]
+expr.ave$gene <- rownames(expr.ave)
+expr.ave.melt <- reshape2::melt(expr.ave,id.vars = "gene", value.name = "expr",variable.name = "cluster")
+top_20_genes <- expr.ave.melt %>%
+  group_by(cluster) %>%
+  top_n(20,expr) %>%
+  arrange(cluster,desc(expr))
+
+DT::datatable(top_20_genes,  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 20, 
+                             autoWidth = TRUE,
+                             scrollX = FALSE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = FALSE,
+                             fixedColumns = FALSE)
+              )
+```
+
+# Top expressed genes in each time point
+
+```{r fig.width=6,fig.height=6}
+Idents(immune.combined) <- "day"
+for (i in levels(immune.combined@active.ident)) {
+  print(plotHighestExprs(as.SingleCellExperiment(subset(immune.combined,day == i),assay = DefaultAssay(immune.combined)),colour_cells_by = "day"))
+}
+
+```
+
+```{r}
+expr.ave <- AverageExpression(immune.combined, assays = DefaultAssay(immune.combined))[[1]]
+expr.ave$gene <- rownames(expr.ave)
+expr.ave.melt <- reshape2::melt(expr.ave,id.vars = "gene", value.name = "expr",variable.name = "cluster")
+top_20_genes <- expr.ave.melt %>%
+  group_by(cluster) %>%
+  top_n(20,expr) %>%
+  arrange(cluster,desc(expr))
+
+DT::datatable(top_20_genes,  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 20, 
+                             autoWidth = TRUE,
+                             scrollX = FALSE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = FALSE,
+                             fixedColumns = FALSE)
+              )
+Idents(immune.combined) <- cluster.resolution
+```
+
+
+# Cluster QC
+
+```{r fig.width=20,fig.height=10}
+markers <- c("Pdgfra","Epcam","Ptprc","Vwf","Pdgfrb","Nrxn1",'Rgs5','Acta2','Cd34','Il33','Il1rl1','Lgr5')
+
+VlnPlot(immune.combined,features = qc.keys, pt.size = 0, ncol = 3) + NoLegend()
+VlnPlot(immune.combined,features = markers, pt.size = 0, ncol = 3) + NoLegend()
+```
+
+```{r fig.height=12,fig.width=15}
+VlnPlot(immune.combined,features = qc.keys, pt.size = 0, ncol = 3, group.by = "day") + NoLegend()
+VlnPlot(immune.combined,features = qc.keys, group.by = "day",pt.size = 0)  + NoLegend()
+```
+
+```{r fig.width=17,fig.height=12}
+FeaturePlot(immune.combined,features = markers) & NoLegend()
+```
+
+```{r fig.width=24,fig.height=14}
+FeaturePlot(immune.combined,features = qc.keys)
+```
+
+
+# save data
+
+```{r}
+if ( !dir.exists(Results.dir)) {
+  dir.create(Results.dir,recursive = TRUE)
+}
+
+sampleName <- "Subset-Immune"
+saveRDS(immune.combined, file = paste(Results.dir,"/",sampleName,".rds",sep = ""))
+```
+

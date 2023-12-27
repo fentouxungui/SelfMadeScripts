@@ -1,0 +1,15 @@
+---
+title: "Check-SCSA-Results"
+author: "Zhang Yongchao"
+date: "July 28, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+GO <- read.delim("")
+```
+

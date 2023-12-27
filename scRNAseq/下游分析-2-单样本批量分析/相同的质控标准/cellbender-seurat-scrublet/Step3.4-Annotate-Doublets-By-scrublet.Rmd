@@ -1,0 +1,114 @@
+---
+title: "Step3.2-Remove-Doublets-By-DoublerFinder"
+author: "Zhang Yongchao"
+date: "March 1, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(DT)
+suppressMessages(library(patchwork))
+library(ggplot2)
+library(Matrix)
+library(clustree)
+library(purrr)
+```
+
+```{r}
+rds.files <- grep("rds$",list.files("./",full.names = TRUE),value = TRUE)
+rds.files  <- rds.files[!grepl("doublets",rds.files )]
+rds.files
+```
+
+```{r}
+obj.list <- lapply(rds.files, function(pbmc){
+  message("* Processing sample: ",pbmc)
+  cds <- readRDS(pbmc)
+  # print(paste(cds@project.name,".scrublet.score.txt",sep = ""))
+  scrublet <- read.table(paste(cds@project.name,".scrublet.score.txt",sep = ""))
+  if(length(scrublet$V1) != ncol(cds)){ stop("stoped for different length of cells.")}
+  cds@meta.data$scrublet <- scrublet$V1
+  cds@meta.data$doublet.srublet <- ifelse(scrublet > 0.15,"doublet","singlet" )
+  return(cds)
+})
+obj.list
+```
+
+```{r}
+# rds.files <- grep("rds$",list.files(),value = TRUE)
+# obj.list <- lapply(rds.files, function(pbmc){
+#   message("* Processing sample: ",pbmc)
+#   cds <- readRDS(pbmc)
+#   return(cds)
+# })
+# obj.list
+```
+
+
+```{r}
+map(1:length(obj.list),function(x){obj.list[[x]]} %>% DimPlot(group.by = "doublet.srublet"))
+map(1:length(obj.list),function(x){
+  seu.obj <- obj.list[[x]]
+  table(seu.obj@meta.data$doublet.srublet)
+})
+```
+```{r}
+map(1:length(obj.list), function(x){
+  print(paste("*Processing sample: ",obj.list[[x]]@project.name,sep = ""))
+  sampleName <- paste(obj.list[[x]]@project.name,".doublets.annotated.scrublet.rds",sep = "")
+  saveRDS(obj.list[[x]],file = sampleName)
+})
+```
+
+# QC for scrublet
+
+
+
+## show doublets in plots
+
+
+```{r fig.width=15,fig.height=5}
+plot_function <- function(cds,group = "cluster",reduction = "umap"){
+  p1 <- DimPlot(cds,label = TRUE,reduction = reduction)
+  p2 <- DimPlot(cds,label = TRUE,cells = rownames(cds@meta.data[cds@meta.data[,group] == "singlet",]),reduction = reduction)
+  if (sum(cds@meta.data[,group] != "singlet") > 1) { # at least 2 cell for each group
+    p3 <- DimPlot(cds,label = TRUE,cells = rownames(cds@meta.data[cds@meta.data[,group] != "singlet",]),reduction = reduction)
+    print(p1 + p2 + p3)
+  }else{
+    print(p1 + p2)
+  }
+}
+
+map(1:length(obj.list),function(x){
+  print(obj.list[[x]]@project.name)
+  plot_function(obj.list[[x]],group = "doublet.srublet")
+  plot_function(obj.list[[x]],group = "doublet.srublet",reduction = "tsne")
+})
+```
+
+
+
+```{r fig.width=20,fig.height=5}
+map(1:length(obj.list),function(x){
+  print(obj.list[[x]]@project.name)
+  obj.list[[x]][["doublet.srublet"]] <- factor(obj.list[[x]]@meta.data[,"doublet.srublet"])
+  print(VlnPlot(obj.list[[x]],features = c("nCount_RNA","nFeature_RNA","percent.mt","UMI.Non.mt"),ncol = 4,group.by = "doublet.srublet",pt.size = 0.01))
+})
+```
+
+
+
+
+
+
+
+
+
+
+

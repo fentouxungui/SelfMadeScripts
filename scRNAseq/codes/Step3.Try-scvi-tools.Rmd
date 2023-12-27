@@ -1,0 +1,115 @@
+---
+title: "Step3.Try-scvi-tools"
+author: "Zhang Yongchao"
+date: "March 11, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+library(SeuratData)
+library(dplyr)
+```
+
+```{r}
+pbmc <- readRDS("../Merge-Total-SeuratHarmony.rds")
+DimPlot(pbmc,label = TRUE)
+```
+## modify cluster names
+
+```{r}
+colnames(pbmc@meta.data)[grepl("^RNA_snn",colnames(pbmc@meta.data))] <- gsub("^RNA","old_all_merged_RNA",colnames(pbmc@meta.data)[grepl("^RNA_snn",colnames(pbmc@meta.data))])
+```
+
+
+```{r}
+length(VariableFeatures(pbmc))
+pbmc <- pbmc[VariableFeatures(pbmc)]
+pbmc
+```
+
+## Converting Seurat object to AnnData
+
+```{r}
+library(reticulate)
+
+sc <- import('scanpy', convert = FALSE)
+scvi <- import('scvi', convert = FALSE)
+scvi$settings$progress_bar_style = 'tqdm'
+```
+
+```{r}
+adata <- sc$AnnData(
+  X   = t(as.matrix(GetAssayData(pbmc,slot='counts'))), #scVI requires raw counts
+  obs = pbmc[[]],
+  var = GetAssay(pbmc)[[]]
+)
+print(adata) # Note generally in Python, dataset conventions are obs x var
+```
+
+## Setup our AnnData for training
+
+```{r}
+# run seteup_anndata
+scvi$data$setup_anndata(adata,
+                        # layer="counts",
+                        batch_key = "orig.ident",
+                        categorical_covariate_keys = c("subject","sex"),
+                        continuous_covariate_keys = c("nCount_RNA", "percent.mt","S.Score", "G2M.Score"))
+
+# create the model
+model = scvi$model$SCVI(adata,
+                        n_hidden=as.integer(128),  # Attention, use as.interger for numbers, otherwise numbers will be recognized as folat type in python.
+                        n_latent=as.integer(10), 
+                        n_layers=as.integer(2))
+# run this step need about 6 hours
+
+
+# train the model
+model$train()
+
+# to specify the number of epochs when training:
+# model$train(max_epochs = as.integer(400))
+```
+
+## Getting the latent represenation and visualization
+
+```{r}
+# get the latent represenation
+latent = model$get_latent_representation()
+
+# put it back in our original Seurat object
+latent <- as.matrix(latent)
+rownames(latent) = colnames(pbmc)
+pbmc[['scvi']] <- CreateDimReducObject(embeddings = latent, key = "scvi_", assay = DefaultAssay(pbmc))
+
+```
+
+
+```{r}
+# Find clusters, then run UMAP, and visualize
+pbmc <- FindNeighbors(pbmc, dims = 1:10, reduction = 'scvi')
+pbmc <- FindClusters(pbmc, resolution =1)
+
+pbmc <- RunUMAP(pbmc, dims = 1:10, reduction = 'scvi')
+pbmc <- RunTSNE(pbmc, dims = 1:10, reduction = 'scvi')
+pbmc <- FindNeighbors(pbmc, reduction = 'scvi', dims = 1:10) %>% FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6))
+```
+
+```{r}
+DimPlot(pbmc, reduction = "umap", pt.size = 0.01, label = TRUE)
+DimPlot(pbmc, reduction = "tsne", pt.size = 0.01, label = TRUE)
+```
+
+```{r fig.width=8,fig.height=8}
+FeaturePlot(pbmc,features = c('PTPRC','EPCAM','PDGFRA','PDGFRB','VWF','RGS5','scrublet','ACTA2','CD34')) & NoLegend()
+```
+
+```{r}
+saveRDS(pbmc,file = "All_merged_scvi_tools.rds")
+```
+

@@ -1,0 +1,15 @@
+item,nFeature_RNA.low,nCount_RNA.low,percent.mt.low,log10GenesPerUMI.low,nFeature_RNA.high,nCount_RNA.high,percent.mt.high,log10GenesPerUMI.high
+APCmin_Mouse_jeju_Tumor_Epi_200421,600,3000,0,0.75,9000,20000,30,1
+APCmin_Mouse_duo_Para_Epi_200421,600,3000,0,0.75,6000,20000,30,1
+APCmin_Mouse_duo_Para_Mesen_200421,600,3000,0,0.8,6000,20000,10,1
+APCmin_Mouse_duo_Tumor_Epi_200421,600,3000,0,0.75,7500,20000,20,1
+APCmin_Mouse_duo_Tumor_Mesen_200421,600,3000,0,0.7,9000,20000,20,1
+APCmin_Mouse_duo-jeju_Para_Mesen_210426,600,3000,0,0.7,6000,20000,10,1
+APCmin_Mouse_duo-jeju_Para_Mesen_210721,600,3000,0,0.7,6000,20000,20,1
+APCmin_Mouse_duo-jeju_Tumor_Mesen_210426,600,3000,0,0.7,8000,20000,10,1
+APCmin_Mouse_duo-jeju_Tumor_Mesen_210721,600,3000,0,0.8,7000,20000,10,1
+APCmin_Mouse_jeju_Para_Epi_200421,600,3000,0,0.75,7000,20000,30,1
+APCmin_Mouse_jeju_Para_Mesen_200421,600,3000,0,0.8,7000,20000,10,1
+APCmin_Mouse_jeju_Tumor_Mesen_200421,600,3000,0,0.7,9000,20000,20,1
+APCmin_Mouse_Rectum_Para_Mesen_210608,600,3000,0,0.8,6000,20000,10,1
+APCmin_Mouse_Rectum_Tumor_Mesen_210608,600,3000,0,0.75,7000,20000,10,1

@@ -1,0 +1,330 @@
+---
+title: "Step3.3 Seurat Clustering Without Doublets"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE,
+  fig.align = "center")
+```
+
+```{r}
+Input.Rds.dir <- "./3.1-QC-Passed-Cells-Rds"
+Output.Rds.dir <- "./3.3-Clean-Cells-Rds/"
+```
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(Matrix))
+suppressMessages(library(clustree))
+suppressMessages(library(scater))
+suppressMessages(library(clustree))
+suppressMessages(library(Matrix))
+```
+
+# import data
+
+```{r}
+rds.file <- list.files(Input.Rds.dir,pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+```
+
+
+# Remove Doublets
+
+```{r}
+# cds <- subset(cds,subset = scrublet.doublet == "singlet") # default
+cds <- subset(cds,subset = scrublet.doublets.score < 0.2) # using customed doublets score
+# cds <- subset(cds,subset = scrublet.doublets.score < 0.15) # using customed doublets scorecutoff
+cds
+```
+
+# QC - post filter
+
+
+```{r fig.width=13,fig.height=12}
+qc.keys <- c(colnames(cds@meta.data)[2:5],"scrublet.doublets.score")
+VlnPlot(cds,features = qc.keys, ncol = 4,pt.size = 0.001,group.by = "orig.ident") + NoLegend()
+VlnPlot(cds,features = qc.keys, ncol = 4,pt.size = 0,group.by = "orig.ident") + NoLegend()
+```
+
+```{r fig.width=14,fig.height=6}
+metadata <- cds@meta.data
+  
+# Visualize the number UMIs/transcripts per cell
+p1 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_RNA, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+p2 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nCount_RNA_RemoveMT, fill= orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+    geom_vline(xintercept = c(1500,2000,3000,5e4,7e4,1e5)) + NoLegend()
+
+# Visualize the distribution of features detected per cell
+p3 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=nFeature_RNA, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(300,400,500,700,800)) + NoLegend()
+
+# Visualize the distribution of mitochondrial gene expression detected per cell
+p4 <- metadata %>% 
+  	ggplot(aes(color=orig.ident, x=percent.mt, fill=orig.ident)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = c(20,30,40,50,60,70)) + NoLegend()
+
+
+# Visualize the overall complexity of the gene expression by visualizing the genes detected per UMI
+p5 <- metadata %>%
+  	ggplot(aes(x=log10GenesPerUMI, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.7,0.75,0.8,0.85)) + NoLegend()
+
+
+# UMI difference percent of CellRanger and RNA
+p6 <- metadata %>%
+  	ggplot(aes(x=scrublet.doublets.score, color = orig.ident, fill=orig.ident)) +
+  	geom_density(alpha = 0.2) +
+  	theme_classic() +
+  	geom_vline(xintercept = c(0.1,0.2,0.3,0.4)) + NoLegend()
+
+wrap_plots(p1,p2,p3,p4,
+           p5,p6)
+```
+
+```{r fig.width=18,fig.height=8}
+# Visualize the correlation between genes detected and number of UMIs and determine whether strong presence of cells with low numbers of genes/UMIs
+
+p1 <- metadata %>% 
+  	ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic()
+
+p2 <- metadata %>% 
+  	ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=log10GenesPerUMI)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic()
+
+p3 <- metadata %>% 
+  	ggplot(aes(x=nCount_RNA, y=nFeature_RNA, color=scrublet.doublets.score)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic()
+
+wrap_plots(p1,p2,p3)
+
+
+p4 <- metadata %>% 
+  	ggplot(aes(x=nCount_RNA_RemoveMT, y=nFeature_RNA, color=percent.mt)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic()
+
+p5 <- metadata %>% 
+  	ggplot(aes(x=nCount_RNA_RemoveMT, y=nFeature_RNA, color=log10GenesPerUMI)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic()
+
+p6 <- metadata %>% 
+  	ggplot(aes(x=nCount_RNA_RemoveMT, y=nFeature_RNA, color=scrublet.doublets.score)) + 
+  	geom_point() + 
+	scale_colour_gradient(low = "gray90", high = "black") +
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic()
+
+wrap_plots(p4,p5,p6)
+```
+
+```{r fig.width=12,fig.height=6}
+plot1 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),sep = "_"), feature2 = "percent.mt") + NoLegend()
+plot2 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),sep = "_"), feature2 = paste("nFeature", DefaultAssay(cds),sep = "_")) + NoLegend()
+plot1 + plot2
+
+plot1 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),"RemoveMT",sep = "_"), feature2 = "percent.mt") + NoLegend()
+plot2 <- FeatureScatter(cds, feature1 = paste("nCount", DefaultAssay(cds),"RemoveMT",sep = "_"), feature2 = paste("nFeature", DefaultAssay(cds),sep = "_")) + NoLegend()
+plot1 + plot2
+```
+
+
+```{r fig.width=6,fig.height=6}
+plotHighestExprs(as.SingleCellExperiment(cds,assay = DefaultAssay(cds)),colour_cells_by = "orig.ident")
+```
+
+
+# seurat clustering
+
+```{r fig.width=18,fig.height=7}
+s.genes <- readRDS("~/reference/Biology-Database/Cell-Cycles-Genes/Fly/S.Genes.Symbol.rds")
+g2m.genes <- readRDS("~/reference/Biology-Database/Cell-Cycles-Genes/Fly/G2M.Genes.Symbol.rds")
+s.genes
+g2m.genes
+
+cds <- NormalizeData(cds,assay = DefaultAssay(cds))
+cds <- FindVariableFeatures(cds, selection.method = "vst", nfeatures = 3000,assay = DefaultAssay(cds))
+
+# How many mito genes
+length(grep("^mt-",VariableFeatures(cds),value = TRUE))
+# Remove mito genes from variable gnes
+VariableFeatures(cds) <- grep("^mt-",VariableFeatures(cds),value = TRUE,invert = TRUE)
+# How many cell cycle related genes
+sum(VariableFeatures(cds) %in% c(s.genes,g2m.genes))
+# Remove cell cycle genes
+VariableFeatures(cds) <- VariableFeatures(cds)[!VariableFeatures(cds) %in% c(s.genes,g2m.genes)]
+# numbers of the final selected variable genes
+length(VariableFeatures(cds))
+
+# Identify the 10 most highly variable genes
+top10 <- head(VariableFeatures(cds), 10)
+# plot variable features with and without labels
+plot1 <- VariableFeaturePlot(cds)
+plot2 <- LabelPoints(plot = plot1, points = top10, repel = TRUE)
+plot1 + plot2
+```
+
+```{r fig.height=6,fig.width=7}
+cds <- CellCycleScoring(cds, s.features = s.genes, g2m.features = g2m.genes,assay = DefaultAssay(cds))
+cds <- ScaleData(cds, vars.to.regress = c("percent.mt",paste("nCount", DefaultAssay(cds),sep = "_"),"S.Score", "G2M.Score"),assay = DefaultAssay(cds))
+cds <- RunPCA(cds, features = VariableFeatures(cds),assay = DefaultAssay(cds))
+
+# Examine and visualize PCA results a few different ways
+print(cds[["pca"]], dims = 1:5, nfeatures = 5)
+VizDimLoadings(cds, dims = 1:2, reduction = "pca")
+```
+
+
+```{r fig.height=5,fig.width=6}
+DimPlot(cds, reduction = "pca")
+```
+
+```{r fig.height=25,fig.width=15}
+DimHeatmap(cds, dims = 1:15, cells = 500, balanced = TRUE)
+```
+
+
+```{r fig.width=6,fig.height=5}
+ElbowPlot(cds)
+```
+
+```{r}
+cds <- RunUMAP(cds, dims = 1:20,umap.method = "umap-learn",metric = "correlation",assay = DefaultAssay(cds))
+cds <- RunTSNE(cds, dims = 1:20,assay = DefaultAssay(cds))
+cds <- FindNeighbors(cds, dims = 1:20, assay = DefaultAssay(cds)) %>% FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6), assay = DefaultAssay(cds))
+```
+
+# Cell numbers in each resolution
+
+```{r}
+statics.cluster.cells <- function(seurat){
+  test.data <- as.data.frame(as.matrix(seurat@meta.data[,grepl("(_snn_res)|(^Annotation)",colnames(seurat@meta.data))]),stringsAsFactors = FALSE)
+  test.data$cell <- rownames(test.data)
+  rownames(test.data) <- NULL
+  test.data.melt <- reshape2::melt(test.data, id.vars = "cell",value.name = "cluster")
+  test.data.melt.dcast <- reshape2::dcast(test.data.melt,formula = cluster ~ variable,fun.aggregate = length)
+  test.data.melt.dcast$cluster <- as.numeric(test.data.melt.dcast$cluster)
+  test.data.melt.dcast <- arrange(test.data.melt.dcast,cluster)
+  rownames(test.data.melt.dcast) <- test.data.melt.dcast$cluster
+  test.data.melt.dcast$cluster <- NULL
+  return(test.data.melt.dcast)
+}
+DT::datatable(statics.cluster.cells(cds),  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 30, 
+                             autoWidth = TRUE,
+                             scrollX = TRUE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = TRUE,
+                             fixedColumns = TRUE)
+              )
+```
+
+# Choose Resolution
+
+```{r fig.height=10,fig.width=10}
+clustree(cds@meta.data,prefix = paste(DefaultAssay(cds),"_snn_res.",sep = ""))
+```
+
+```{r fig.width=8,fig.height=6}
+Idents(cds) <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+DimPlot(cds,label = TRUE)
+DimPlot(cds,label = TRUE,reduction = "tsne")
+
+DimPlot(cds,group.by = "Phase")
+DimPlot(cds,reduction = "tsne",group.by = "Phase")
+```
+
+# QC of seurat clustering
+
+```{r fig.width=20,fig.height=10}
+qc.keys <- c(colnames(cds@meta.data)[2:5],"scrublet.doublets.score")
+cds$scrublet.doublet <- factor(cds$scrublet.doublet)
+VlnPlot(cds,features = qc.keys, ncol = 4, pt.size = 0.01) + NoLegend()
+```
+
+```{r fig.width=17,fig.height=12}
+# FeaturePlot(cds,features = c("Pdgfra","Epcam","Ptprc","Vwf","Pdgfrb","Nrxn1",'Rgs5','Acta2','Cd34','Il33','Il1rl1','Lgr5')) & NoLegend()
+```
+
+```{r fig.width=20,fig.height=12}
+FeaturePlot(cds, features = qc.keys, ncol = 4)
+```
+
+# save Rds and mtx file for scrublet doublet analysis
+
+```{r}
+if ( !dir.exists(Output.Rds.dir)) {
+  dir.create(Output.Rds.dir)
+}
+saveRDS(cds,file = paste(Output.Rds.dir,basename(getwd()),".rds",sep = ""))
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

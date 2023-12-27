@@ -1,0 +1,173 @@
+---
+title: "CellType-Annotation"
+author: "Zhang Yongchao"
+date: "July 28, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(Seurat)
+library(dplyr)
+library(DT)
+library(reldist)
+```
+
+# import data
+```{r}
+cds <- readRDS("../../merged.mouse.Embryo.SI.rds")
+umi <- cds@assays$RNA@counts
+meta <- cds@active.ident
+rm(cds)
+```
+
+```{r}
+# Attention! directly read in txt file will loss genes starts with number, probably a bug in R
+markers <- read.delim("../../Mouse_cell_markers.txt",stringsAsFactors = FALSE)
+head(markers$geneSymbol[995]) # You will see some genes are not correctly read in! NA values
+```
+
+```{r}
+geneSymbol <- c()
+con <- file("../../Mouse_cell_markers.txt", "r")
+line=readLines(con,n=1)
+while( length(line) != 0 ) {
+  geneSymbol <- append(geneSymbol,unlist(strsplit(line,split = "\t"))[9])
+  line=readLines(con,n=1)
+}
+close(con)
+markers$geneSymbol <- geneSymbol[-1]
+```
+
+# filter marker genes and correct gene names
+```{r}
+umi.genes <- rownames(umi)
+total.markers <- c()
+for (i in 1:length(markers$geneSymbol)) {
+  genes <- markers$geneSymbol[i]
+  genes <- gsub(" ","",genes)
+  genes <- gsub("\\[","",genes)
+  genes <- gsub("\\]","",genes)
+  #genes <- gsub("\"","",genes)
+  genes <- unlist(strsplit(genes,split = ","))
+  genes <- genes[!genes %in% "NA"]
+  genes.exist <- genes[genes %in% umi.genes]
+  gene.not <- genes[!genes %in%  umi.genes]
+  if(length(gene.not) != 0){
+    print(paste("Original gene not exitst in data: ",paste(gene.not,collapse = ","),sep = ""))
+    for (genes.sub in gene.not) {
+        if (toupper(genes.sub) %in% toupper(umi.genes)) {
+          if ( length(umi.genes[toupper(umi.genes) %in% toupper(genes.sub)]) != 1) {
+            print("** Attention, some mapping to multiple genes!")
+          }
+        print(paste("** Genes changed to correct name:",paste(umi.genes[toupper(umi.genes) %in% toupper(genes.sub)],collapse = ","),sep = ""))
+        genes.exist <- append(genes.exist,umi.genes[toupper(umi.genes) %in% toupper(genes.sub)][1])
+      }
+    }
+  }
+  markers$geneSymbol[i] <- paste(unique(genes.exist),collapse = ",")
+  total.markers <- append(total.markers,unique(genes.exist))
+  rm(genes,gene.not,genes.exist)
+}
+unique.markers <- unique(total.markers)
+```
+
+# filter umi counts
+```{r}
+umi.filtered <- umi[rownames(umi) %in% unique.markers,]
+```
+
+# calculate gene's expression percent for each cluster
+```{r}
+cluster.gene.fre <- data.frame(row.names = rownames(umi.filtered))
+
+for(cluster in levels(meta)){
+  cluster.cells <- names(meta[meta == cluster])
+  # calculate gene's expression percent for each cluster
+  subset.cluster <- umi.filtered[,colnames(umi.filtered) %in% cluster.cells]
+  subset.mat <- subset.cluster > 0
+  subset.num <- length(cluster.cells)
+  subset.res <- data.frame(cluster = apply(subset.mat, 1, function(x)sum(x)/subset.num))
+  colnames(subset.res)[1] <- paste("cluster",cluster,sep = "")
+  cluster.gene.fre <- cbind(cluster.gene.fre,subset.res)
+}
+```
+
+# possible step: score the specify of the markers \  GINI index ?
+```{r}
+# not done, nesseary!
+fre.gini <- apply(cluster.gene.fre,1,gini)
+
+x <- na.omit(unlist(fre.gini))
+## plot the two histograms
+hcum <- h <- hist(x, plot=FALSE)
+hcum$counts <- cumsum(hcum$counts)
+plot(hcum, main="")
+plot(h, add=T, col="grey")
+
+## Plot the density and cumulative density
+d <- density(x)
+lines(x = d$x, y = d$y * length(x) * diff(h$breaks)[1], lwd = 2)
+lines(x = d$x, y = cumsum(d$y)/max(cumsum(d$y)) * length(x), lwd = 2)
+
+
+cluster.gene.fre.norm <- cluster.gene.fre*fre.gini
+```
+
+# celltype-cluster matrix
+```{r}
+# deal with the duplicates in markers library
+markers$tissueType <- gsub(" ","-",markers$tissueType)
+markers$cellType <- gsub(" ","-",markers$cellType)
+markers$cellName <- gsub(" ","-",markers$cellName)
+markers$ID <- paste(markers$tissueType,markers$cellType,markers$cellName,sep = ":")
+
+markers.lib <- markers[,c("ID","geneSymbol")]
+markers.lib <- arrange(markers.lib,ID)
+# remove lines without genes
+markers.lib <- markers.lib[markers.lib$geneSymbol != "",]
+# two ways to handle the duplicated IDs
+# 1. merge the genes
+# code bla...
+# 2. rename the cell type ID
+markers.lib$ID <- make.unique(markers.lib$ID)
+```
+
+
+```{r}
+celltype.cluster.mat <- data.frame(row.names = colnames(cluster.gene.fre.norm))
+for (i in 1:length(markers.lib$geneSymbol)) {
+  celltype <- markers.lib$ID[i]
+  genes <- unlist(strsplit(markers.lib$geneSymbol[i],split = ","))
+  genes.num <- length(genes)
+  cluster.gene.fre.norm.subset <- cluster.gene.fre.norm[genes,]
+  subset.mat <- data.frame(celltype = apply(cluster.gene.fre.norm.subset, 2, function(x)sum(x)/genes.num))
+  colnames(subset.mat)[1] <- celltype
+  celltype.cluster.mat <- cbind(celltype.cluster.mat,subset.mat)
+}
+```
+
+# assign cell type
+```{r}
+results <- t(celltype.cluster.mat)
+datatable(results)
+```
+
+```{r}
+hist(unlist(results),breaks = 100,main = "score distribution",xlab = "Data Range",ylab = "counts")
+```
+```{r fig.width=12,fig.height=8}
+par(mfrow =c(4,6))
+for (i in colnames(results)) {
+  print(i)
+  celltype.filtered <- results[,i]
+  print(hist(celltype.filtered,xlab = "score",main = i))
+  celltype.filtered <- celltype.filtered[!is.na(celltype.filtered)]
+  celltype.filtered <- celltype.filtered[celltype.filtered > 0.3]
+  print(sort(celltype.filtered,decreasing = TRUE))
+}
+```
+
+

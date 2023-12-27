@@ -1,0 +1,310 @@
+---
+title: "ChIPseeker"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = -1,message = -1,echo = FALSE) # no codes in results.html
+```
+
+```{r}
+species <- "chicken" # or human, mouse
+```
+
+> [ChIPseeker: an R package for ChIP peak Annotation, Comparison and Visualization](http://bioconductor.org/packages/devel/bioc/vignettes/ChIPseeker/inst/doc/ChIPseeker.html)
+
+> [ChIP-seq基本流程](https://pzweuj.github.io/2018/08/22/chip-seq-workflow.html)
+
+
+```{r}
+org.db <- switch(species,
+                 drosophlia = "org.Dm.eg.db",
+                 human = "org.Hs.eg.db",
+                 mouse = "org.Mm.eg.db",
+                 chicken = "org.Gg.eg.db")
+switch (species,
+  drosophlia = suppressMessages(library(org.Dm.eg.db)),
+  human = suppressMessages(library(org.Hs.eg.db)),
+  chicken = suppressMessages(library(org.Gg.eg.db)),
+  mouse = suppressMessages(library(org.Mm.eg.db))
+)
+switch (species,
+  drosophlia = {suppressMessages(library(TxDb.Dmelanogaster.UCSC.dm6.ensGene))
+    txdb <- TxDb.Dmelanogaster.UCSC.dm6.ensGene},
+  human = {suppressMessages(library(TxDb.Hsapiens.UCSC.hg38.knownGene))
+    txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene},
+  chicken = {suppressMessages(library(TxDb.Ggallus.UCSC.galGal6.refGene))
+    txdb <- TxDb.Ggallus.UCSC.galGal6.refGene},
+  mouse = {suppressMessages(library(TxDb.Mmusculus.UCSC.mm10.knownGene))
+    txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene}
+)
+
+homer_genome <- switch(species,
+                      drosophlia = "dm6r",
+                      human = "hg38r",
+                      mouse = "mm10r",
+                      chicken = "galGal6")
+
+genome_size <- switch(species,
+                      drosophlia = 1.4e+8,
+                      human = 3.3e+9,
+                      mouse = 2.8e+9,
+                      chicken = 1.2e+9)
+library(ChIPseeker)
+library(clusterProfiler)
+library(ReactomePA)
+library(rtracklayer)
+library(ChIPpeakAnno)
+library(RColorBrewer)
+library(VennDiagram)
+library(dplyr)
+```
+
+```{r}
+dmr.path <- "../../../../5_msPIPE/Analysis/DMR"
+peaks.files <- list.files(dmr.path,pattern = "^DMC_q0.5.*.bed$",recursive = TRUE,full.names = TRUE)
+peaks.files
+```
+
+```{r}
+for (i in peaks.files) {
+  temp <- read.table(i,stringsAsFactors = FALSE,header = 1)
+  colnames(temp)[4:5] <- c("g1.methyl.per","g2.methyl.per")
+  temp$score <- temp$q_val
+  temp$name <- paste(temp$chr,temp$start,temp$end,sep = "-")
+  temp$strand <- "+"
+  temp <- temp[,c("chr","start","end","name","score","strand","meth_diff", "q_val", "g1.methyl.per","g2.methyl.per")]
+  write.table(temp, quote = FALSE,file = paste(basename(dirname(dirname(i))),basename(i),sep = "_"),sep = "\t",col.names = FALSE,row.names = FALSE)
+}
+```
+
+
+```{R}
+peak_list = list()
+peaks.files <- list.files("./",pattern = "bed$")
+for (peaks.file in peaks.files) {
+  extraCols_narrowPeak <- c(meth_diff = "character", q_val = "numeric", g1.methyl.per = "numeric",g2.methyl.per = "numeric")
+  gr_narrowPeak <- import(peaks.file, format = "BED",extraCols = extraCols_narrowPeak)
+  peak_list[gsub(".bed","",fixed = TRUE,peaks.file)] <- gr_narrowPeak
+}
+```
+
+# Venn diagram of peaks overlap
+
+>[Common Downstream ChIP-seq Analysis Workflows using ChIPpeakAnno](http://bioconductor.org/packages/release/bioc/vignettes/ChIPpeakAnno/inst/doc/pipeline.html)
+
+
+```{r}
+ol <- findOverlapsOfPeaks(peak_list, connectedPeaks="keepAll")
+averagePeakWidth <- mean(width(unlist(GRangesList(ol$peaklist))))
+tot <- ceiling(genome_size * .03 / averagePeakWidth)
+
+makeVennDiagram(ol, totalTest = tot, connectedPeaks="keepAll",
+                fill=brewer.pal(brewer.pal.info["Set1","maxcolors"], "Set1")[1:length(peak_list)], # circle fill color
+                col=brewer.pal(brewer.pal.info["Set3","maxcolors"], "Set3")[1:length(peak_list)],#circle border color
+                cat.col=brewer.pal(brewer.pal.info["Set1","maxcolors"], "Set1")[1:length(peak_list)])
+
+makeVennDiagram(peak_list,
+                fill=brewer.pal(brewer.pal.info["Set1","maxcolors"], "Set1")[1:length(peak_list)], # circle fill color
+                col=brewer.pal(brewer.pal.info["Set3","maxcolors"], "Set3")[1:length(peak_list)],#circle border color
+                cat.col=brewer.pal(brewer.pal.info["Set1","maxcolors"], "Set1")[1:length(peak_list)])
+```
+
+# 查看peaks在基因组中的位置
+
+```{r fig.width=8,fig.height=12}
+# print(lapply(peak_list, function(x)covplot(x,weightCol="score")))
+
+# covplot(peak_list[[1]], weightCol="score")
+
+# 可以单独查看某些染色体和区域
+#covplot(cbx7, weightCol="score", chrs=c("chr17", "chr18"), xlim=c(4.5e7, 5e7))
+```
+
+# 与TSS区域结合的peaks的概况
+
+```{r fig.width=12,fig.height=3}
+promoter <- getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
+tagMatrix <- lapply(peak_list, getTagMatrix, windows=promoter)
+tagHeatmap(tagMatrix, xlim=c(-3000, 3000), color=NULL)
+```
+
+```{r fig.width=5,fig.height=10}
+plotAvgProf(tagMatrix, xlim=c(-3000, 3000),
+	xlab="Genomic Region (5'->3')",
+	ylab = "Read Count Frequency", facet="row")
+```
+
+```{r fig.width=6,fig.height=3}
+plotAvgProf(tagMatrix, xlim=c(-3000, 3000),
+	xlab="Genomic Region (5'->3')",
+	ylab = "Read Count Frequency")
+```
+
+# peak注释
+
+```{r}
+# 注释了然后把结果输出
+anno.dir <- "./Annotation"
+
+if (!dir.exists(anno.dir)) {
+  dir.create(anno.dir)
+}
+
+peaks.samples <- names(peak_list)
+
+lapply(peaks.samples, function(x){
+  print(x)
+  assign(x,annotatePeak(peak_list[[x]], tssRegion=c(-3000, 3000),TxDb=txdb, annoDb=org.db, verbose=FALSE))
+  write.table(as.data.frame(get(x)), paste(x,".anno.txt", sep = ""),quote=F, row.names=F, sep="\t")
+})
+
+
+# 多样本的组合
+anno_list <- lapply(peak_list, annotatePeak, TxDb=txdb, tssRegion=c(-3000, 3000), verbose=FALSE, annoDb=org.db)
+```
+
+# summarise overlapping info
+
+# ```{r}
+# files.txt <- list.files(".",pattern = "txt$",full.names = TRUE)
+# # remove unwanted sample
+# # files.txt <- files.txt[-4]
+# length(names(peak_list)) == length(files.txt)
+# for (txt in files.txt) {
+#   test <- read.delim(txt)
+#   names.key <- gsub(".anno.txt","",basename(txt))
+#   dfs <- names(ol$overlappingPeaks)[grepl(names.key, names(ol$overlappingPeaks))]
+#   dfs <- ol$overlappingPeaks[dfs]
+#   dfs <- lapply(dfs, function(x){unname(unlist(x[,c(7,19)]))})
+#   dfs <- lapply(dfs,function(x)x[x %in% test$name])
+#   names(dfs) <- gsub("///","",gsub(names.key,"",names(dfs)))
+#   for (i in names(dfs)) {
+#     test[,i] <- ifelse(test$name %in% dfs[[i]],1,0)
+#   }
+#   write.csv(test,file = gsub("anno.txt","anno.overlap.csv",txt))
+# }
+# ```
+
+
+
+
+# peak可视化
+
+
+```{r}
+lapply(anno_list,plotAnnoPie)
+```
+
+```{r fig.width=6,fig.height=4}
+lapply(anno_list,vennpie)
+```
+
+```{r}
+# lapply(anno_list,upsetplot)
+```
+
+```{r fig.width=12,fig.height=3}
+plotAnnoBar(anno_list)
+```
+
+```{r fig.width=12,fig.height=3}
+plotDistToTSS(anno_list,
+	title="Distribution of transcription factor-binding loci\nrelative to TSS")
+```
+
+# 富集分析
+
+```{r}
+df.list <- lapply(anno_list, function(x)as.data.frame(x)[,c("geneId", "transcriptId", "ENSEMBL","SYMBOL", "GENENAME", "seqnames", "name", "distanceToTSS","meth_diff" , "q_val" ,  "g1.methyl.per", "g2.methyl.per","annotation")])
+
+library(dplyr)
+lapply(df.list, function(x){
+  x %>%
+  group_by(geneId, ENSEMBL, SYMBOL, GENENAME, seqnames) %>% 
+  summarize(name = paste(name, collapse = ";"),
+            transcriptId = paste(transcriptId, collapse = ";"),
+            distanceToTSS = paste(distanceToTSS, collapse = ";"),
+            annotation = paste(annotation, collapse = ";"),
+            meth_diff = paste(meth_diff, collapse = ";"),
+            q_val = paste( q_val, collapse = ";"),
+            g1.methyl.per = paste(g1.methyl.per, collapse = ";"),
+            g2.methyl.per = paste(g2.methyl.per, collapse = ";"))
+}) -> df.list
+
+genes.list = lapply(anno_list, function(i) as.data.frame(i)$geneId)
+genes.list = lapply(genes.list, function(i)i[!is.na(i)])
+
+genes.list = lapply(anno_list, function(i) {
+  if (i@peakNum < 1000) {
+    return(unique(as.data.frame(i)$geneId))
+  }else{
+    message("More than 3000 genes are found! the top 1000 scored genes will be output!")
+    return(as.data.frame(i)$geneId[order(as.data.frame(i)$q_val,decreasing = TRUE)][1:1000])
+  }
+})
+
+#names(genes) = sub("_", "\n", names(genes))
+compKEGG <- compareCluster(geneCluster=genes.list, fun="enrichKEGG", pvalueCutoff=0.05, pAdjustMethod="BH")
+dotplot(compKEGG, showCategory=15, title="KEGG Pathway Enrichment Analysis")
+
+compGO <- compareCluster(geneCluster=genes.list, fun="enrichGO", pvalueCutoff=0.05, pAdjustMethod="BH",OrgDb = org.db )
+dotplot(compGO, showCategory=15, title="GO Enrichment Analysis")
+```
+
+# Venn图
+
+```{r fig.width=8,fig.height=8}
+gene_list <- lapply(df.list, function(x)x$geneId)
+vennplot(gene_list)
+dev.off()
+T <- venn.diagram(gene_list, 
+                filename=NULL,
+                lwd=1,
+                lty=2,
+                col=c('red','green','blue'),
+                fill=c('red','green','blue'),
+                cat.col=c('red','green','blue')
+                # reverse=TRUE
+                )
+grid.draw(T)
+
+for (i in names(df.list)) {
+  write.csv(df.list[[i]], file = paste0(anno.dir,"/",i,".Gene.Level.csv"))
+}
+```
+
+# Motif Enrichment
+
+much long time for this step, better put codes bellow in a single R code script.
+
+```{r}
+library(dplyr)
+peaks.anno.files <-  grep("txt$",list.files("Annotation/"),value = TRUE)
+homer.dir <- "Homer-Results"
+if (!dir.exists(homer.dir)) {
+  dir.create(homer.dir)
+}
+  
+for (Apeakfile.name in peaks.anno.files) {
+  Apeakfile <- read.delim(paste(anno.dir,Apeakfile.name,sep = "/"),stringsAsFactors = FALSE)
+  SampleLabel <- gsub(".anno.txt","",Apeakfile.name)
+  message("Processing: ",SampleLabel,"...")
+  FileLabel <- paste(SampleLabel,"peaks-for-homer-ExactSize.txt",sep = "-")
+  print(all(Apeakfile$end > Apeakfile$start))
+  PeakForHomer <- transmute(Apeakfile,PeakID = paste0(seqnames,"-",rownames(Apeakfile),sep=""),Chr = seqnames,
+                 Start = start,End = end,Strand = rep("+",length(rownames(Apeakfile))))
+  
+  write.table(PeakForHomer,file = FileLabel,row.names = FALSE,quote = FALSE,sep = "\t")
+  homer.output <- paste(homer.dir,paste(SampleLabel,"homer_results_exactsize",sep = "_"),sep = "/")
+  FindMofit.Command <- paste("findMotifsGenome.pl",FileLabel, homer_genome,homer.output, "-size given",sep = " ")
+  system(FindMofit.Command)
+}
+```
+

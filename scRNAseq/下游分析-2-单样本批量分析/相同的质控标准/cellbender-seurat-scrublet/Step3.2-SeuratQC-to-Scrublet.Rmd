@@ -1,0 +1,54 @@
+---
+title: "Step3.1-CellBender-to-Seurat"
+author: "Zhang Yongchao"
+date: "February 26, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Seurat - Guided Clustering Tutorial
+
+see: https://satijalab.org/seurat/v3.1/pbmc3k_tutorial.html
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+library(ggplot2)
+library(Matrix)
+library(clustree)
+```
+
+```{r}
+rds.files <- grep("rds$",list.files("./",full.names = TRUE),value = TRUE)
+rds.files  <- rds.files[!grepl("doublets",rds.files )]
+rds.files
+```
+
+```{r}
+obj.list <- lapply(rds.files, function(pbmc){
+  message("* Processing sample: ",pbmc)
+  cds <- readRDS(pbmc)
+  return(cds)
+})
+obj.list
+```
+
+# Export umi counts
+
+```{r}
+library(Matrix)
+lapply(obj.list,function(x){
+  Amatrix <- as.matrix(x@assays$RNA@counts)
+  writeMM(Matrix(Amatrix,sparse = TRUE),file = paste(x@project.name,"UMI.mtx",sep = "."))
+  return(NULL)
+})
+```
+
+
+
+
+

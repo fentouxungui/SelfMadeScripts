@@ -1,0 +1,28 @@
+sed '1d' DMR_0.5.bed >> reform.DMR_0.5.bed
+
+bedtools intersect -wa -wb -a /data3/Xilab-Data-Analysis/zhangyc/WGBS/results/5_msPIPE/Analysis/annotations/promoter.bed -b reform.DMR_0.5.bed > intersection.DMR2Promoter.txt
+
+cut -f 4 intersection.DMR2Promoter.txt | cut -d ';' -f1| cut -d ':' -f2 | sort -u > DMR_genelist.txt
+
+##### 0.01
+
+sed '1d'  DMR_0.01.bed >> reform.DMR_0.01.bed
+
+bedtools intersect -wa -wb -a /data3/Xilab-Data-Analysis/zhangyc/WGBS/results/5_msPIPE/Analysis/annotations/promoter.bed -b reform.DMR_0.01.bed > intersection.DMR2Promoter.txt
+
+cut -f 4 intersection.DMR2Promoter.txt | cut -d ';' -f1| cut -d ':' -f2 | sort -u > DMR_genelist.txt
+
+
+# DMR genes list should exist in DMC gene list
+# remove gene not exist in DMC gene list
+grep -v "RAD51AP2"  DMR_genelist.txt  > DMR_genelist.revised.txt
+
+
+
+
+
+## from hyperDMC_detailed_count_methyl.txt to extract the genes
+# cut -f 4 hyperDMC_detailed_count_methyl.txt | cut -d ';' -f1| cut -d ':' -f2 | sort -u > DMR_genelist.txt
+cut -f 4 hyperDMC_detailed_count_methyl.txt | cut -d ':' -f2 | sort -u > hyperDMC_genelist.txt
+cut -f 4 hypoDMC_detailed_count_methyl.txt | cut -d ':' -f2 | sort -u > hypoDMC_genelist.txt
+

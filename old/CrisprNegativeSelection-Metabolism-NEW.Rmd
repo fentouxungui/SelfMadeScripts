@@ -1,0 +1,562 @@
+---
+title: "Wei Ruxue - negative selection in RKO cell lines using method from 2017 Cancer Research"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE
+)
+```
+
+Using Mageck output as input to find the APC SL Metablolism genes.
+
+# Prepare and set specific parameter
+
+Set special parameters for this analysis
+
+```{r}
+samplePrefix <- "RKO."
+```
+
+import library
+
+```{r}
+suppressMessages(library(ggplot2))
+suppressMessages(library(psych))
+suppressMessages(library(dplyr))
+suppressMessages(library(factoextra))
+suppressMessages(library(DT))
+suppressMessages(library(ggpubr)) 
+suppressMessages(library(reshape2)) 
+```
+
+
+
+# import Mageck output and  QC
+
+## import data
+
+```{r}
+MageckOut <- read.delim("../mageck/Metabolism.count.txt",stringsAsFactors = F)
+datatable(head(MageckOut),extensions = 'FixedColumns',options = list(scrollY = FALSE,scrollX = TRUE))
+# value columns
+ValueColumns <- 3:length(colnames(MageckOut))
+```
+
+
+```{r}
+### Attention! this code chunk used to modify the data!
+## Metabolism Day14/Day0 samples may mistakely labeled!
+# colnamesOrder <- colnames(MageckOut)
+# colnames(MageckOut)[grep("Metabolism.Day14",colnames(MageckOut))] <- gsub("Metabolism.Day14","tmp",colnames(MageckOut)[grep("Metabolism.Day14",colnames(MageckOut))])
+# colnames(MageckOut)[grep("Metabolism.Day0",colnames(MageckOut))] <- gsub("Metabolism.Day0","Metabolism.Day14",colnames(MageckOut)[grep("Metabolism.Day0",colnames(MageckOut))])
+# colnames(MageckOut)[grep("tmp",colnames(MageckOut))] <- gsub("tmp","Metabolism.Day0",colnames(MageckOut)[grep("tmp",colnames(MageckOut))])
+# print(colnamesOrder)
+# print(colnames(MageckOut))
+# # reorder columns as old!
+# MageckOut <- MageckOut[,colnamesOrder]
+# print(colnames(MageckOut))
+```
+
+three types of sgRNAs-index
+
+```{r}
+# index of essential genes
+LibraryMetadata <- read.csv("../../../library/Library2-APC_SL_metabolism+essential+nontargeting.csv",stringsAsFactors = FALSE)
+EssentialGenes <- filter(LibraryMetadata,Type == "essential")
+EssentialIndex <- which(MageckOut$sgRNA %in% EssentialGenes$ID)
+# index of the Non-targeting sgRNA index
+NonTargetIndex <- which(substring(MageckOut$Gene,1,5) == "NonTa")
+# index of the customed sgRNAs(except for the essential and nontargeting)
+CustomedIndex <- seq(1,length(rownames(MageckOut)))[!seq(1,length(rownames(MageckOut))) %in% c(EssentialIndex,NonTargetIndex)]
+```
+
+## QC-1: Count reads
+
+### Counts reads from  1% top enriched sgRNAs 
+
+
+```{r}
+TopsgRNAsNumer <- round(length(rownames(MageckOut))*0.01)
+TopsgRNAs <- apply(MageckOut[,ValueColumns],2,function(x)MageckOut$sgRNA[order(x,decreasing = TRUE)[1:TopsgRNAsNumer]])
+TopsgRNAsGene <- apply(MageckOut[,ValueColumns],2,function(x)MageckOut$Gene[order(x,decreasing = TRUE)[1:TopsgRNAsNumer]])
+
+# top 1% enriched sgRNAs in each sample
+datatable(TopsgRNAs,options = list(scrollY = FALSE,scrollX = TRUE))
+# top 1% enriched-sgRNAS-Matched Genes in each sample
+datatable(TopsgRNAsGene,options = list(scrollY = FALSE,scrollX = TRUE))
+
+topsgRNAsReads <- apply(MageckOut[,ValueColumns],2,function(x)x[order(x,decreasing = TRUE)])[1:TopsgRNAsNumer,]
+totalReadsSums <- apply(MageckOut[,ValueColumns], 2, sum)
+topsgRNAsSums <- apply(topsgRNAsReads, 2, sum)
+topsgRNAsFre <- round(topsgRNAsSums/totalReadsSums,3)
+
+CountsResults <- rbind(totalReadsSums,topsgRNAsSums,topsgRNAsFre)
+```
+
+### counts sgRNA reads from essential genes/Non-targeting sgRNAs/Customed genes
+
+```{r}
+indexes <- c("NonTargetIndex","EssentialIndex","CustomedIndex")
+VectorTailChange <- function(somevector,TailPosition,newValue) {
+  somevector[(length(somevector)-TailPosition + 1):length(somevector)] <- newValue
+  return(somevector)
+}
+
+for (index in indexes) {
+  typeSumName <- gsub("Index","-sgRNAS-Sum",index)
+  typeFreName <- gsub("Index","-sgRNAS-Sum-Fre",index)
+  assign(typeSumName,apply(MageckOut[get(index),ValueColumns],2,sum))
+  assign(typeFreName,round(get(typeSumName)/totalReadsSums,3))
+  CountsResults <- rbind(CountsResults,get(typeSumName),get(typeFreName))
+  rownames(CountsResults) <- VectorTailChange(rownames(CountsResults),2,c(typeSumName,typeFreName))
+}
+datatable(CountsResults,extensions = 'FixedColumns',options = list(scrollY = FALSE,scrollX = TRUE,fixedColumns = TRUE))
+```
+
+
+
+
+## QC-2: Distribution describe
+
+```{r}
+datatable(describe(MageckOut),extensions = 'FixedColumns',options = list(scrollY = FALSE,scrollX = TRUE,fixedColumns = TRUE))
+```
+
+All sgRNAs are found with more than 1 reads!
+
+## QC-3: Visualize reads distribution in histogram
+
+Raw read counts distribution in a histogram
+
+```{r,  fig10, fig.width=12,fig.height=16}
+par(mfrow = c(4,3))
+for (i in ValueColumns) {
+  hist(MageckOut[,i],breaks = seq(0,300000,by=500),xlim = c(0,20000), main = colnames(MageckOut)[i],xlab = NULL)
+  rug(jitter(MageckOut[,i]))
+}
+```
+
+```{r fig21,fig.width=9,fig.height=36}
+par(mfrow = c(12,3))
+for (i in ValueColumns) {
+  for (index in indexes) {
+    hist(MageckOut[get(index),i],breaks = seq(0,300000,by=500),xlim = c(0,25000), main = paste(colnames(MageckOut)[i],index,sep = "-"),xlab = NULL)
+    rug(jitter(MageckOut[,i]))
+  }
+}
+```
+
+# Normalize and Calculate the FC, then normalized to the median nontargeting control sgRNAs
+
+## Normalize library size and QC
+
+### Normalized to same total reads
+
+```{r}
+# normalized to total read count per sample (normalized reads per sgRNA = (reads per sgRNA/total reads for all sgRNAs in the sample) * 1e6 + 1)
+MageckNorm <- MageckOut
+MageckNorm[,3:length(colnames(MageckNorm))] <- apply(MageckOut[,ValueColumns],2,function(x)((x/sum(x))*1e6 + 1))
+colSums(MageckNorm[,3:length(colnames(MageckNorm))])# each sample is normalized to 1001606 reads! 
+```
+
+###  QC-1: Boxplot 
+
+Normalized read count distribution of all samples in a boxplot (normalized to total read count per sample)
+
+```{r fig1, fig.height=8,fig.width=10}
+par(oma=c(5,5,5,5))
+boxplot(MageckNorm[,ValueColumns], main = "sgRNA abundance",col = c(rep("#C6DBEF",3), rep("#2171B5",3), rep("#FDD0A2",3), rep("#D94801",3)), pch = 21,cex = 0.6,ylim = c(0,2000), xaxt = 'n',ylab = "Normalized reads counts")
+axis(side = 1, at = seq(1,12), labels = gsub(samplePrefix,"",colnames(MageckOut)[ValueColumns]),las = "2")
+
+# log2(Normalized counts - total 1001606 reads)
+boxplot(log2(MageckNorm[,ValueColumns]), main = "sgRNA abundance",col = c(rep("#C6DBEF",3), rep("#2171B5",3), rep("#FDD0A2",3), rep("#D94801",3)), pch = 21,cex = 0.6,xaxt = 'n',ylab = "log2(Normalized reads counts)")
+axis(side = 1, at = seq(1,12), labels = gsub(samplePrefix,"",colnames(MageckOut)[ValueColumns]),las = "2")
+```
+
+### QC-2: Scatter plot with Rsquare
+
+```{r fig2, fig.width=12, fig.height=16}
+# using Normalized counts (total about 1e6 counts)
+rsquare <- data.frame(sample1=character(0),sample2=character(0),rsquare=character(0),stringsAsFactors = FALSE)
+# Suppress one command's output in R [here is legend function]
+# https://stackoverflow.com/questions/2723034/suppress-one-commands-output-in-r
+hush=function(code){
+  sink("/dev/null") # use /dev/null in UNIX
+  tmp = code
+  sink()
+  return(tmp)
+}
+
+ for (i in ValueColumns) {
+  print(paste("#### Comparison of ",colnames(MageckOut)[i],"with all other samples using Normalized counts ####",sep = " "))
+  par(mfrow = c(4,3))
+  hush(for (j in ValueColumns) {
+    sampleA <- colnames(MageckOut)[i]
+    sampleB <- colnames(MageckOut)[j]
+    #compName <- paste(sampleA,sampleB,sep = " vs ")
+    print(plot(MageckNorm[,c(i,j)],pch = 16,cex=0.5),xlim = c(0,6500),ylim=c(0,7000))
+    fit <- summary(lm(MageckNorm[,j] ~ MageckNorm[,i]))
+    legend("bottomright", bty="n", legend=paste("R2 = ", format(fit$adj.r.squared, digits=4)))
+    newEntry <- data.frame(sample1=sampleA,sample2=sampleB,rsquare=format(fit$adj.r.squared, digits=4),stringsAsFactors = FALSE)
+    rsquare <- rbind(rsquare,newEntry)
+    #rm(sampleA,sampleB,fit,newEntry,compName)
+  })
+}
+```
+
+```{r}
+print("#### You can check the R square for each comparison using Normalized counts in the table bellow! ####")
+datatable(rsquare)
+```
+
+```{r fig3, fig.width=12, fig.height=16}
+# using log2(Normalized counts)
+rsquare <- data.frame(sample1=character(0),sample2=character(0),rsquare=character(0),stringsAsFactors = FALSE)
+log2MageckNorm <- log2(MageckNorm[,ValueColumns])
+for (i in 1:(length(colnames(MageckOut))-2)) {
+  print(paste("#### Comparison of ",colnames(MageckOut)[i+2],"with all other samples using log2(Normalized counts ####)",sep = " "))
+  par(mfrow = c(4,3))
+  hush(for (j in 1:(length(colnames(MageckOut))-2)) {
+    sampleA <- colnames(MageckOut)[i+2]
+    sampleB <- colnames(MageckOut)[j+2]
+    #compName <- paste(sampleA,sampleB,sep = " vs ")
+    print(plot(log2MageckNorm[,c(i,j)],pch = 16,cex=0.5))
+    fit <- summary(lm(log2MageckNorm[,j] ~ log2MageckNorm[,i]))
+    print(legend("bottomright", bty="n", legend=paste("R2 = ", format(fit$adj.r.squared, digits=4))))
+    newEntry <- data.frame(sample1=sampleA,sample2=sampleB,rsquare=format(fit$adj.r.squared, digits=4),stringsAsFactors = FALSE)
+    rsquare <- rbind(rsquare,newEntry)
+    #rm(sampleA,sampleB,fit,newEntry,compName)
+  })
+}
+```
+
+```{r}
+print("#### You can check the R square for each comparison using log2(Normalized counts) in the table bellow! ####")
+datatable(rsquare)
+```
+
+### QC-3: PCA
+
+http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/118-principal-component-analysis-in-r-prcomp-vs-princomp/
+
+```{r}
+# using normlized data
+MageckPCA <- MageckNorm[,ValueColumns]
+rownames(MageckPCA) <- MageckNorm$sgRNA
+MageckPCA <- t(MageckPCA)
+res.pca <- prcomp(MageckPCA, scale = TRUE)
+fviz_eig(res.pca)
+fviz_pca_ind(res.pca,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+)
+
+fviz_pca_ind(res.pca,
+             col.ind = c(rep("WT.Day0",3),rep("Metabolism.Day0",3),rep("WT.Day14",3),rep("Metabolism.Day14",3)),
+             repel = TRUE     # Avoid text overlapping
+) +
+  theme(legend.position="none")
+```
+
+```{r}
+# using log2(normlized data)
+MageckPCA <- log2(MageckPCA)
+res.pca <- prcomp(MageckPCA, scale = TRUE)
+fviz_eig(res.pca)
+fviz_pca_ind(res.pca,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+)
+
+fviz_pca_ind(res.pca,
+             col.ind = c(rep("red",3),rep("green",3),rep("blue",3),rep("black",3)),
+             repel = TRUE     # Avoid text overlapping
+) +
+  theme(legend.position="none")
+```
+
+## Calculate log(FC) And QC
+
+Calculate log(FC) for each pair (Day14 vs Day0)
+
+### Calculate log(FC) for each Day14-vs-Day0
+
+```{r}
+Replicates <- paste("rep",1:3,sep = "")
+Pairs <- c( "WT","Metabolism")
+# Compares <- c("Day14","Day0") # not used here
+
+extracname <- function(object,x,y,z="."){
+  tmp <- object
+  for (i in c(x, y, z)) {
+  tmp <- grep(i, tmp, value = TRUE)
+  }
+  return(tmp)
+}
+  
+object <- colnames(MageckNorm)
+#extracname(object,"WT","Day14","rep1")
+
+attach(MageckNorm)
+for (Replicate in Replicates) {
+  for(Pair in Pairs){
+    compareName <- paste(Pair,"Day14.vs.Day0",Replicate,"logFC",sep = ".")
+    MageckNorm$tmp <- log(get(extracname(object,Replicate,Pair,"Day14"))/get(extracname(object,Replicate,Pair,"Day0")))
+    colnames(MageckNorm)[which(colnames(MageckNorm) == "tmp")]  <- compareName
+    rm(compareName)
+  }
+}
+detach(MageckNorm)
+datatable(head(MageckNorm), extensions = 'FixedColumns',options = list(scrollY = FALSE,scrollX = TRUE,fixedColumns = list(leftColumns = 2)))
+```
+
+### QC: Log(FC) Histogram
+
+Log(FC) Value distribution before normalized to the median of the nontargeting control sgRNAs for each sample.
+
+#### Total reads
+
+```{r fig11,fig.width=8,fig.height=12}
+par(mfrow=c(3,2))
+for (name in grep("logFC",colnames(MageckNorm),value = T)) {
+  hist(MageckNorm[,name],breaks = seq(-5,5,by = 0.05), main = name, xlab = NULL,xlim = c(-3,2))
+}
+
+```
+
+#### Three types of reads
+
+```{r, fig14,fig.width=8,fig.height=16}
+simplifyName <- function(ObjectName,Removekeys,Newkeys){
+  for (i in 1:length(Removekeys)) {
+    ObjectName <- gsub(Removekeys[i],Newkeys[i],ObjectName)
+  }
+  return(ObjectName)
+}
+#simplifyName("WT.Day14.vs.Day0.rep1.logFC",c("Day14.vs.Day0.","logFC"),c("","Non-targeting"))
+oldNameKeys <- c("Day14.vs.Day0.","logFC")
+
+par(mfrow=c(6,3))
+for (name in grep("logFC",colnames(MageckNorm),value = T)) {
+  for (index in indexes) {
+    hist(MageckNorm[get(index),name],breaks = seq(-2.5,2,by = 0.1), main = simplifyName(name,oldNameKeys,c("",index)), xlab = NULL,xlim = c(-1.5,1))
+  }
+}
+```
+
+## Normalized log(FC) and QC
+
+### Normalize logFC to the median of the nontargeting control sgRNAs
+
+```{r}
+NonTargetMean <- as.numeric(apply(MageckNorm[NonTargetIndex,grep("logFC",colnames(MageckNorm))],2,median)) # Using median value as the scale factor
+print("Non-target sgRNA median:")
+print(NonTargetMean)
+MageckNorm[,grep("logFC",colnames(MageckNorm))] <- sweep(MageckNorm[,grep("logFC",colnames(MageckNorm))],2,NonTargetMean,"-")
+colnames(MageckNorm)[grep("logFC",colnames(MageckNorm))] <- paste(grep("logFC",colnames(MageckNorm),value = T),".Normalized",sep = "")
+write.csv(MageckNorm,file = "Day14-vs-Day0-Normalized-logFC.csv")
+```
+
+
+### QC: Value distribution in Histogram
+
+#### Total reads
+```{r fig9,fig.width=8,fig.height=12}
+par(mfrow=c(3,2))
+for (name in grep("logFC.Normalized",colnames(MageckNorm),value = T)) {
+  hist(MageckNorm[,name],breaks = seq(-5,5,by = 0.05), main = name, xlab = NULL,xlim = c(-1.5,1.5))
+}
+```
+
+#### Three type of reads
+```{r fig19,fig.width=8,fig.height=16}
+par(mfrow=c(6,3))
+oldNameKeys <- c("Day14.vs.Day0.","logFC")
+
+par(mfrow=c(6,3))
+for (name in grep("logFC",colnames(MageckNorm),value = T)) {
+  for (index in indexes) {
+      hist(MageckNorm[get(index),name],breaks = seq(-2.5,2,by = 0.1), main = simplifyName(name,oldNameKeys,c("",index)), xlab = NULL,xlim = c(-1,1))
+  }
+}
+```
+
+### QC: Value distribution in Boxplot
+
+```{r fig4, fig.height=7,fig.width=7}
+par(oma=c(4,1,1,1))
+boxplot(MageckNorm[,grep("logFC.Normalized",colnames(MageckNorm))], main = "Value Distribution",col = c(rep("#C6DBEF",3), rep("#2171B5",3)), pch = 21,cex = 0.6, xaxt = 'n',ylab = "Normalized log(FC) - Day14.vs.Day0",ylim = c(-2,1))
+axis(side = 1, at = seq(1,6), labels = simplifyName(grep("logFC.Normalized",colnames(MageckNorm),value = TRUE),c(".logFC.Normalized",".Day14.vs.Day0"),c("","")),las = "2")
+```
+
+
+
+# Visualize genes/sgRNAs in a scatter plot
+
+```{r,fig12,fig.width=12,fig.height=12}
+# parameters for ggplot2
+limitation <- c(-4,4)
+breaks <- c(-4,-3,-2,-1,0,1,2,3,4)
+
+for (i in Replicates) {
+  print(paste("####################################****",i,"****####################################",sep=""))
+  # extract paired data for each replicate
+  data <- MageckNorm[,extracname(colnames(MageckNorm),"logFC",i)]
+  attach(data)
+  caseName <- grep("Metabolism",colnames(data),value = TRUE)
+  controlName <- grep("WT",colnames(data),value = TRUE)
+  colnames(data)[grep("Metabolism",colnames(data))] <- "case"
+  colnames(data)[grep("WT",colnames(data))] <- "control"
+  
+  # Total sgRNAs
+  p1 <-ggplot(data, aes(x=control, y=case)) +
+    geom_vline(xintercept = 0) + geom_hline(yintercept = 0) +
+    geom_point(size = 0.3,color = "#bed2ed") +
+    lims(x=limitation,y=limitation) +
+    theme_minimal() +
+    coord_fixed() +
+    scale_x_continuous(breaks = breaks,limits = limitation) +
+    scale_y_continuous(breaks = breaks,limits = limitation) +
+    labs(x=controlName,y=caseName,title="Total sgRNAs") 
+  #print(p1)
+  
+  # Highlight NonTargeting sgRNAs
+  p2 <-ggplot(data, aes(x=control, y=case)) +
+    geom_vline(xintercept = 0) + geom_hline(yintercept = 0) +
+    geom_point(size = 0.3,color = "#bed2ed") +
+    #lims(x=c(-6,6),y=c(-6,6)) +
+    geom_point(data = data[NonTargetIndex,],aes(x=control, y=case),size = 0.3,color = "#7c7f7e") +
+    theme_minimal() +
+    coord_fixed() +
+    scale_x_continuous(breaks = breaks,limits = limitation) +
+    scale_y_continuous(breaks = breaks,limits = limitation) +
+    labs(x=controlName,y=caseName,title="Highlight NonTargeting sgRNAs") 
+  #print(p2)
+  
+  # highlight essential genes/sgRNAs
+  p3 <-ggplot(data, aes(x=control, y=case)) +
+    geom_vline(xintercept = 0) + geom_hline(yintercept = 0) +
+    geom_point(size = 0.2,color = "#bed2ed") +
+    geom_point(data = data[EssentialIndex,],aes(x=control, y=case),size = 0.2,color = "#ed2144") +
+    #lims(x=c(-10,10),y=c(-10,10)) +
+    theme_minimal() +
+    coord_fixed()  +
+    scale_x_continuous(breaks = breaks,limits = limitation) +
+    scale_y_continuous(breaks = breaks,limits = limitation) +
+    labs(x=controlName,y=caseName,title="Highlight essential sgRNAs") 
+  #print(p3)
+  
+  # highligth customed sgRNAs
+  p5 <-ggplot(data, aes(x=control, y=case)) +
+    geom_vline(xintercept = 0) + geom_hline(yintercept = 0) +
+    geom_point(size = 0.2,color = "#bed2ed") +
+    geom_point(data = data[CustomedIndex,],aes(x=control, y=case),size = 0.2,color = "#ed2144") +
+    #lims(x=c(-10,10),y=c(-10,10)) +
+    theme_minimal() +
+    coord_fixed()   +
+    scale_x_continuous(breaks = breaks,limits = limitation) +
+    scale_y_continuous(breaks = breaks,limits = limitation) +
+    labs(x=controlName,y=caseName,title="Highlight customed sgRNAs") 
+  #print(p5)
+  
+  print(ggarrange(p1,p2,p3,p5,labels = c("A","B","C","D"),nrow = 2,ncol = 2))
+  
+  # # check sgRNA counts
+  # geneName <- "BTNL9"
+  # geneIndex <- which(MageckNorm$Gene %in% geneName)
+
+  # p7 <-ggplot(data, aes(x=control, y=case)) +
+  #   geom_vline(xintercept = 0) + geom_hline(yintercept = 0) +
+  #   geom_point(size = 0.2,color = "#bed2ed") +
+  #   geom_point(data = data[geneIndex,],aes(x=control, y=case),size = 0.2,color = "red") +
+  #   #lims(x=c(-10,10),y=c(-10,10)) +
+  #   theme_minimal() +
+  #   coord_fixed()   +
+  #   scale_x_continuous(breaks = breaks,limits = limitation) +
+  #   scale_y_continuous(breaks = breaks,limits = limitation) +
+  #   labs(x=controlName,y=caseName,title=paste("Highlight gRNAs from",gneName,sep = " ")) 
+  # p7
+  detach(data)
+}
+
+```
+
+
+
+
+# filter sgRNAs using customed standards
+
+use non-targeting sgRNAs to define intervals of c("positive","non-essential","negative")
+
+```{r}
+# first use non-targeting sgRNAs to set cutoffs for the WT and APC-mutant
+quantile.cut <- c(0.95, 0.95) # 0.95 for WT, 1 for APC-mutant
+limitation <- c(-1,1)
+breaks <- c(-2,-1.5,-1,-0.5,-0.2,-0.1,0,0.1,0.2,0.5,1,1.5,2)
+
+for (i in Replicates) {
+  print(paste("####################################****",i,"****####################################",sep=""))
+  # extract paired data for each replicate
+  data <- MageckNorm[,c("sgRNA","Gene",extracname(colnames(MageckNorm),"logFC",i))]
+  attach(data)
+  caseName <- grep("Metabolism",colnames(data),value = TRUE)
+  controlName <- grep("WT",colnames(data),value = TRUE)
+  colnames(data)[grep("Metabolism",colnames(data))] <- "case"
+  colnames(data)[grep("WT",colnames(data))] <- "control"
+  nonTarget <- data[NonTargetIndex,c("control","case")]
+  distance.cut <- sqrt(apply(apply(nonTarget,2,function(x)(x*x)),2,function(x)quantile(x, quantile.cut)))
+  print(distance.cut)
+  data.filtered <- filter(data,abs(control) < distance.cut[1,1] & case <  distance.cut[2,2]*(-1))
+  print("Distance to origin Cutoff:")
+  print(paste(controlName,distance.cut[1,1],sep = ": "))
+  print(paste(caseName,distance.cut[2,2],sep = ": "))
+  datatable(data.filtered)
+  data.filtered$Replicate <- i
+  data.filtered$ControlCutoff <- distance.cut[1,1]
+  data.filtered$CaseCutoff <- distance.cut[2,2]
+  # merge the selected sgRNAs
+  if (i == Replicates[1]) {
+    merged.selection <- data.filtered
+  }else{
+    merged.selection <- rbind(merged.selection,data.filtered)
+  }
+  
+  # check sgRNA position!
+  sgRNAIndex <- which(MageckNorm$sgRNA %in% data.filtered$sgRNA)
+  p7 <-ggplot(data, aes(x=control, y=case)) +
+    geom_vline(xintercept = 0) + geom_hline(yintercept = 0) +
+    geom_hline(yintercept = -distance.cut[2,2],colour = "black",linetype = "dotted") + 
+    geom_vline(xintercept = c(-distance.cut[1,1],distance.cut[1,1]),colour = "black",linetype = "dotted") +
+    geom_point(size = 0.2,color = "#bed2ed") +
+    geom_point(data = data[sgRNAIndex,],aes(x=control, y=case),size = 0.2,color = "red") +
+    theme_minimal() +
+    coord_fixed()   +
+    scale_x_continuous(breaks = breaks,limits = limitation) +
+    scale_y_continuous(breaks = breaks,limits = limitation) +
+    labs(x=controlName,y=caseName,title="Highlight the selected gRNAs") 
+  print(p7)
+  
+  detach(data)
+}
+stats.Gene <- dcast(as.data.frame(table(merged.selection$Gene,merged.selection$Replicate)),Var1~Var2)
+rownames(stats.Gene) <- stats.Gene$Var1
+stats.Gene <- stats.Gene[,-1]
+stats.Gene$sum <- apply(stats.Gene,1,sum)
+datatable(stats.Gene)
+```
+
+
+
+

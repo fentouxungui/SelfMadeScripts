@@ -1,0 +1,1 @@
+https://bioconductor.org/packages/release/bioc/vignettes/genomation/inst/doc/GenomationManual.html

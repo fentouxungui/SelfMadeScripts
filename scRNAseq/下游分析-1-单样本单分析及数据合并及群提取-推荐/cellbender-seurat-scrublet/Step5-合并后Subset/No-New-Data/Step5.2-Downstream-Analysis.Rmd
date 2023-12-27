@@ -1,0 +1,123 @@
+---
+title: "Step4.2 Downstream Analysis"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+**Parameters:**
+
+```{r}
+Results.dir <- "./5.2-Downstream-Analysis"
+plot.markers.file <- "../../cell_markers-jz-Format.csv"
+```
+
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(dplyr))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(pheatmap))
+```
+
+```{r fig.width=6,fig.height=6}
+cds <- readRDS(list.files("./5.1-Rds",pattern = "rds$",full.names = TRUE))
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+Idents(cds) <- cluster.resolution
+DimPlot(cds,label = TRUE) + NoLegend()
+```
+
+# Find Cluster Markers
+
+```{r}
+save.dir <- paste(Results.dir,"/","Cluster-Markers",sep = "")
+if ( !dir.exists(save.dir)) {
+  dir.create(save.dir,recursive = TRUE)
+}
+save.file <- paste(save.dir,"/",basename(getwd()),".Cluster-Markers.",cluster.resolution,".csv",sep = "")
+```
+
+```{r}
+if (!file.exists(save.file)) {
+  cds.markers <- FindAllMarkers(cds, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+  write.csv(cds.markers,file = save.file)
+}else{
+  cds.markers <- read.csv(save.file,stringsAsFactors = FALSE,row.names = 1)
+}
+
+cds.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
+```
+
+# Heatmap of top 10 markers
+
+```{r fig.height=25,fig.width=20}
+top10 <- cds.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+DoHeatmap(cds, features = top10$gene) + NoLegend()
+```
+
+# Dotplot of top 3 markers
+
+```{r fig.width=21,fig.height=18}
+DefaultAssay(cds) <- "RNA"
+cds <- NormalizeData(cds,assay = DefaultAssay(cds))
+DefaultAssay(cds) <- "CellBender"
+
+top3 <- cds.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_logFC)
+p1 <- DotPlot(cds,features = unique(top3$gene), group.by = cluster.resolution, assay = "CellBender") + RotatedAxis()
+p2 <- DotPlot(cds,features = unique(top3$gene), group.by = cluster.resolution, assay = "RNA") + RotatedAxis()
+wrap_plots(p1,
+           p2,ncol = 1)
+```
+
+# Cluster correlation
+
+```{r fig.height=6,fig.width=7}
+av.exp <- AverageExpression(cds)[[DefaultAssay(cds)]]
+cor.exp <- as.data.frame(cor(av.exp,method = "pearson"))
+pheatmap(cor.exp)
+cor.exp <- as.data.frame(cor(av.exp,method = "spearman"))
+pheatmap(cor.exp)
+```
+
+
+# Violin Plot of the selected markers By Day
+
+## import markers
+
+```{r}
+# markers.df <- read.csv(plot.markers.file,stringsAsFactors = FALSE,skip = 1,check.names = FALSE)
+# markers.df <- markers.df[-1,]
+# markers.df <- markers.df[,colnames(markers.df) %in% unique(as.character(cds@meta.data$Merge_Annotation.Manually.General))]
+# markers.df
+```
+
+```{r}
+# genes <- unname(unlist(markers.df))
+# genes <- genes[genes != ""]
+# genes
+```
+```{r fig.width=6,fig.height=6}
+# VlnPlot(cds,features = genes,group.by = "day",pt.size = 0.01)
+# VlnPlot(cds,features = genes,group.by = "day",pt.size = 0)
+```
+
+
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

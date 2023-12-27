@@ -1,0 +1,110 @@
+---
+title: "Step4.3 Manually Cluster Annotation"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+  warning = FALSE,
+  collapse = TRUE)
+```
+
+
+```{r}
+Results.dir <- "./4.3-Cluster-Annotation"
+if ( !dir.exists(Results.dir) ) {
+  dir.create(Results.dir)
+}
+```
+
+```{r}
+suppressMessages(library(Seurat))
+```
+
+# import data and set parameters
+
+```{r}
+rds.file <- list.files("./4.1-Merged-Rds/",pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+```
+
+```{r}
+# check if columns in meta.data are factor
+columns.factorization <- function(ADataFrame,columns = c(1:2)){
+  for (i in columns) {
+    ADataFrame[,i] <- as.factor(as.numeric(ADataFrame[,i]) -1)
+  }
+  return(ADataFrame)
+}
+
+cds@meta.data <- columns.factorization(cds@meta.data,columns = grep("^CellBender_snn_res",colnames(cds@meta.data),value = TRUE))
+
+# Based on resolution 0.6
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+Idents(cds) <- "CellBender_snn_res.0.6"
+DimPlot(cds,label = TRUE)
+DimPlot(cds,label = TRUE,reduction = "tsne")
+```
+
+# General comment
+
+```{r}
+ann.col <- "Annotation.Manually.General"
+save.file <- paste(Results.dir,"cluster-annotation.csv",sep = "/")
+if ( !ann.col %in% colnames(cds@meta.data) & !file.exists(save.file)) {
+  # if only one celltype
+  # cds[[ann.col]] <- "Epithelial cells"
+  # cds[[ann.col]]<- as.factor(cds[[ann.col]])
+  anno.demo <- data.frame(ClusterID = levels(cds@active.ident),
+                          Markers = "",
+                          CellType = "")
+  write.csv(anno.demo,file = save.file,row.names = FALSE)
+}
+getwd()
+```
+
+**import the csv file and edit with cluster annotation info**
+
+```{r}
+if ( !ann.col %in% colnames(cds@meta.data) ) {
+  cluster.df <- read.csv(save.file,stringsAsFactors = FALSE)
+  if ( "" %in% cluster.df$CellType ) {
+    stop("Please check the cluster annotation file!")
+  }
+  new.cluster.ids <- cluster.df$CellType
+  names(new.cluster.ids) <- cluster.df$ClusterID
+  cds <- RenameIdents(cds, new.cluster.ids)
+  cds[[ann.col]] <- Idents(cds)
+  Idents(cds) <- cluster.resolution
+}
+```
+
+```{r fig.width=7,fig.height=6}
+DimPlot(cds,group.by = ann.col,label = TRUE) + NoLegend()
+DimPlot(cds,group.by = ann.col,label = TRUE, reduction = "tsne") + NoLegend()
+```
+
+```{r}
+DimPlot(subset(cds,idents = c(3,5)),label = TRUE)
+DimPlot(subset(cds,idents = c(3,5)),label = TRUE,reduction = "tsne")
+```
+
+# Save Final results
+
+```{r}
+saveRDS(cds,file = rds.file)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

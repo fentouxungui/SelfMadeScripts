@@ -1,0 +1,135 @@
+---
+title: "GO-KEGG-using-cluster-Markers"
+author: "Zhang Yongchao"
+date: "July 20, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(dplyr)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(ggplot2)
+library(DT)
+```
+
+```{r}
+cluster.markers <- read.csv("cluster.markers.csv",stringsAsFactors = FALSE)
+head(cluster.markers)
+```
+
+```{r}
+table(cluster.markers$cluster)
+```
+```{r}
+# gene <- cluster.markers$gene
+# gene.df <- bitr(gene, fromType = "SYMBOL",
+#         toType = c("ENSEMBL", "ENTREZID"),
+#         OrgDb = org.Mm.eg.db)
+# head(gene.df)
+```
+
+```{r}
+# gene <- gene.df$ENTREZID
+# 
+# ggo <- groupGO(gene     = gene,
+#                OrgDb    = org.Mm.eg.db,
+#                ont      = "BP",
+#                level    = 3,
+#                readable = TRUE)
+# head(arrange(ggo@result,desc(Count))[,1:4],40)
+```
+
+## GO
+```{r}
+# cell markers
+cell_markers <- vroom::vroom("Mouse_cell_markers.txt") %>%
+   tidyr::unite("cellMarker", tissueType, cancerType, cellName, sep=", ") %>% 
+   dplyr::select(cellMarker, geneID) %>%
+   dplyr::mutate(geneID = strsplit(geneID, ', '))
+head(cell_markers)
+
+# wiki pathways
+wp2gene <- read.gmt("wikipathways-20200710-gmt-Mus_musculus.gmt.txt")
+wp2gene <- wp2gene %>% tidyr::separate(ont, c("name","version","wpid","org"), "%")
+wpid2gene <- wp2gene %>% dplyr::select(wpid, gene) #TERM2GENE
+wpid2name <- wp2gene %>% dplyr::select(wpid, name) #TERM2NAME
+```
+
+```{r fig.width=10,fig.height=8}
+for (i in unique(cluster.markers$cluster)) {
+  print(i)
+  subset.data <- filter(cluster.markers,cluster == i & avg_logFC > 0)
+  geneList <- subset.data$avg_logFC
+  names(geneList) <- subset.data$gene
+  gene <- names(geneList)
+  gene.df <- bitr(gene, fromType = "SYMBOL",
+                  toType = c("ENSEMBL", "ENTREZID"),
+                  OrgDb = org.Mm.eg.db)
+  # GO
+  ego <- enrichGO(gene        = gene.df$ENTREZID,
+                  #universe      = names(geneList),
+                  OrgDb         = org.Mm.eg.db,
+                  ont           = "BP",
+                  pAdjustMethod = "BH",
+                  pvalueCutoff  = 0.01,
+                  qvalueCutoff  = 0.05,
+                  readable      = TRUE)
+  if (!is.null(ego)) {
+    print(barplot(ego, showCategory=20) + ggtitle(paste("cluster-",i," upregulated Markers",sep = "")))
+    edox <- setReadable(ego, 'org.Mm.eg.db', 'ENTREZID')
+    print(cnetplot(edox, foldChange=geneList))
+  }
+  # wiki pathways
+  ewp <- enricher(gene = gene.df$ENTREZID, TERM2GENE = wpid2gene, TERM2NAME = wpid2name)
+  head(ewp)
+
+  # kegg
+  kk <- enrichKEGG(gene         = gene.df$ENTREZID,
+                 organism     = 'mmu',
+                 pvalueCutoff = 0.05)
+  mkk <- enrichMKEGG(gene = gene.df$ENTREZID,
+                   organism = 'mmu')
+  if(!is.null(kk)){
+    print(barplot(kk, showCategory=20) + ggtitle(paste("cluster-",i," upregulated Markers",sep = "")))
+  }
+
+  if (!is.null(mkk)) {
+    print(barplot(mkk, showCategory=20) + ggtitle(paste("cluster-",i," upregulated Markers",sep = "")))
+  }
+}
+```
+
+
+
+```{r}
+enrichMarker <- list()
+for (i in unique(cluster.markers$cluster)) {
+  print(i)
+  subset.data <- filter(cluster.markers,cluster == i & avg_logFC > 0)
+  geneList <- subset.data$avg_logFC
+  names(geneList) <- subset.data$gene
+  gene <- names(geneList)
+  gene.df <- bitr(gene, fromType = "SYMBOL",
+                toType = c("ENSEMBL", "ENTREZID"),
+                OrgDb = org.Mm.eg.db)
+   # Cell Marker
+  y <- enricher(gene.df$ENTREZID, TERM2GENE=cell_markers, minGSSize=1)
+  enrichMarker[[paste("cluster-",i,sep = "")]] = y@result
+}
+
+out = NULL
+for (c in names(enrichMarker)) {
+  knit_expanded <- paste0("\n\n## Classification: ", c, "##\n\n```{r results='asis', echo=FALSE}\n\ndatatable(enrichMarker[['", c, "']])\n\n```")
+  out = c(out, knit_expanded)
+}
+
+```
+
+<!--- knit those table chunk statements --> 
+`r paste(knitr::knit(text = out), collapse = '\n')`
+
+

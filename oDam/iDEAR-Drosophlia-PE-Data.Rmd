@@ -1,0 +1,293 @@
+---
+title: "iDEAR"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+>[iDEAR - iDamID Enrichment Analysis with R](https://bitbucket.org/juanlmateo/idear)
+
+Description
+Identify the binding profile of a transcription factor (or any DNA binding protein) from iDamIDseq data. Different to other methods, with iDamIDseq + iDEAR you obtain both the regions in the genome where your protein of interest (POI) is present or bound and also the regions from where your POI is actively or passively excluded. The first set of regions is evidenced by significantly higher methylation signal due to the activity of the Dam protein fused to the POI with respect to the control sample. The second set corresponds to the regions with significantly higher methylation signal by the fusion of the Dam protein to GFP+NLS.
+
+If you use this tool for you scientific work, please cite it as:
+
+Gutierrez-Triana JA, Mateo JL, Ibberson D, Ryu S, Wittbrodt J (2016) iDamIDseq and iDEAR: an improved method and computational pipeline to profile chromatin-binding proteins. Development 143:4272–4278.
+
+For more information you can read our manuscript in Development: [iDamIDseq and iDEAR: an improved method and computational pipeline to profile chromatin-binding proteins](http://dev.biologists.org/content/143/22/4272) or in biorxiv: [iDamIDseq and iDEAR: An improved method and a computational pipeline to profile chromatin-binding proteins of developing organisms](http://biorxiv.org/content/early/2016/07/05/062208)
+
+# Installation
+
+## From bitbucket
+
+You can install iDEAR directly from bitbucket using the devtools package. To do that run these commands:
+
+```{r}
+#if(!require("devtools")) install.packages("devtools")
+#devtools::install_bitbucket("juanlmateo/idear")
+```
+
+```{r}
+library(iDEAR)
+library(dplyr)
+library(BSgenome.Dmelanogaster.UCSC.dm6)
+```
+
+
+# Usage
+
+**Samples information**
+
+First of all, you need to define the information of the samples to be analysed as a data.frame with three columns. The first column holds the name of the sample (POI or GFP), the second the replicate number and the third the path to the bam file with the mapped reads for each sample.
+
+
+```{r}
+bam.path <- "../2_mapping_bowtie2"
+all.bams <- list.files(bam.path, pattern = "rmDup.sorted.bam$",full.names = TRUE)
+all.bams
+
+Control <- "control"
+Case <- "chinmo"
+
+samples <- data.frame(name = factor(c(rep(Case,3),rep(Control,3)),levels = c(Case,Control)),
+                      replicate = c(1:3,1:3),
+                      paths = all.bams)
+
+samples
+```
+
+
+In order to determine which factor is used in the numerator and denominator for the DE analysis and interpretation of the log2FC there are two possibilities: if the first column in the samples variable, identifying the sample name, is of factor type the order of the levels is taken into account, i.e. first level will be the numerator and the second level the denominator. In other case, the first listed sample will be in the numerator and the second in the denominator. In the example above the sample name is defined as a factor and the order, first "TF", means that the "TF" sample is considered as positive and "GFP" as control.
+
+
+**"GATC" fragments**
+
+It is necessary to have the coordinates of the fragments in the genome flanked by "GATC" sites, potential DpnI or DpnII restriction sites. You may have these coordinates in a bed file, in this case provide the path to this file directly to the function ``getEnrichedDamRegions``. Otherwise iDEAR provides the function ``getDpnIFragments`` to extract these coordinates from a BSgenome object.
+
+
+```{r}
+fragments <- getDpnIFragments(BSgenome.Dmelanogaster.UCSC.dm6)
+```
+
+If there is not yet a package for the genome of your species it is simple to create a BSgenome object from a fasta file with the genome sequence following the instructions from this [vignette](https://bioconductor.org/packages/release/bioc/vignettes/BSgenome/inst/doc/BSgenomeForge.pdf).
+
+
+**Enrichment analysis**
+
+Once the samples information and the fragments coordinates are ready you only need to use the function getEnrichedDamRegions. This function computes the read counts for all the selected fragments. Fragments with very low read coverage are excluded based on the value of the parameter min.rel.count. Read coverage is defined as the ratio of the number of reads in each fragment to its length. This ratio must be greater than min.rel.count times the ratio of total reads in fragments to the length of all fragments.
+
+Next, from the fragments that pass this filter those that are adjacent, or separated by a distance smaller than the length of the shorter fragment, will be join together to form sites. Finally, using the DESeq2 package this function defines the sites from the genome with significant difference between the samples.
+
+```{r}
+# Revised code for PE data
+getEnrichedDamRegions_PE <- function(samples, dpnI.fragments, min.rel.count = 3, significance = 0.01, 
+                                  correlation.plot = TRUE) {
+  # sanity check
+  if (length(levels(samples[, 1])) != 2) {
+    stop("You need to provide exactly 2 samples with different replicas.")
+  }
+  
+  if (is.character(dpnI.fragments)) {
+    dpnI.fragments <- rtracklayer::import.bed(dpnI.fragments)
+  } else if (class(dpnI.fragments) != "GRanges") {
+    stop("The parameter dpnI.fragments must be a string with a file path or and GRanges object.")
+  }
+  total.fragments.size <- sum(as.numeric(GenomicRanges::width(dpnI.fragments)))
+  #>>>>>>>>>>>>>>>>>>>>> Code Revised Here <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<#
+  # read.overlap <- GenomicAlignments::summarizeOverlaps(dpnI.fragments, as.character(samples[, 3]), ignore.strand = T)
+  # read.overlap <- GenomicAlignments::summarizeOverlaps(dpnI.fragments, as.character(samples[, 3]), ignore.strand = T, singleEnd = FALSE, fragments = TRUE)
+  read.overlap <- GenomicAlignments::summarizeOverlaps(dpnI.fragments, as.character(samples[, 3]), ignore.strand = T, singleEnd = FALSE, fragments = FALSE)
+  
+  if (correlation.plot) {
+    if (requireNamespace("ggplot2")) {
+      ggplot2::theme_set(ggplot2::theme_bw(base_size = 20))
+      p <- ggplot2::ggplot(data = data.frame(value = as.vector(cor(SummarizedExperiment::assay(read.overlap))), 
+                                             x = rep(paste(samples[, 1], samples[, 2]), nrow(samples)), y = rep(paste(samples[, 
+                                                                                                                              1], samples[, 2]), each = nrow(samples))), ggplot2::aes(x = x, 
+                                                                                                                                                                                      y = y, fill = value)) + ggplot2::geom_tile() + ggplot2::scale_fill_gradient("Correlation", 
+                                                                                                                                                                                                                                                                  high = "#00441b", low = "#f7fcfd") + ggplot2::theme(axis.ticks = ggplot2::element_blank(), 
+                                                                                                                                                                                                                                                                                                                      axis.title = ggplot2::element_blank(), axis.text.x = ggplot2::element_text(angle = 45, 
+                                                                                                                                                                                                                                                                                                                                                                                                 hjust = 1))
+      print(p)
+    } else if (requireNamespace("lattice")) {
+      ramp <- colorRamp(c("#f7fcfd", "#00441b"))
+      lattice::levelplot(cor(SummarizedExperiment::assay(read.overlap)), col.regions = rgb(ramp(seq(0, 
+                                                                                                    1, length = 100)), maxColorValue = 255), xlab = "", ylab = "", scales = list(labels = paste(samples[, 
+                                                                                                                                                                                                        1], samples[, 2]), x = list(rot = 45)))
+    } else {
+      warning("The correlation plot requires the packages ggplot2 or lattice but they are not present.")
+    }
+  }
+  
+  if (min.rel.count > 1) {
+    samples$aver.read.count <- apply(SummarizedExperiment::assay(read.overlap), 2, sum)/total.fragments.size
+    selected.fragments <- dpnI.fragments[apply(SummarizedExperiment::assay(read.overlap)/GenomicRanges::width(dpnI.fragments) > 
+                                                 min.rel.count * samples$aver.read.count, 1, any)]
+  } else {
+    selected.fragments <- dpnI.fragments
+  }
+  
+  pad <- min(GenomicRanges::width(dpnI.fragments))
+  suppressWarnings(GenomicRanges::start(selected.fragments) <- GenomicRanges::start(selected.fragments) - 
+                     pad)
+  suppressWarnings(GenomicRanges::end(selected.fragments) <- GenomicRanges::end(selected.fragments) + 
+                     pad)
+  suppressWarnings(selected.fragments <- GenomicRanges::reduce(selected.fragments))
+  suppressWarnings(GenomicRanges::start(selected.fragments) <- GenomicRanges::start(selected.fragments) + 
+                     pad)
+  suppressWarnings(GenomicRanges::end(selected.fragments) <- GenomicRanges::end(selected.fragments) - 
+                     pad)
+  
+  read.overlap <- GenomicAlignments::summarizeOverlaps(selected.fragments, as.character(samples[, 
+                                                                                                3]), ignore.strand = T)
+  read.count <- SummarizedExperiment::assay(read.overlap)
+  colnames(read.count) <- paste(samples[, 1], samples[, 2])
+  rownames(read.count) <- paste0(GenomicRanges::seqnames(selected.fragments), ":", 
+                                 GenomicRanges::start(selected.fragments), "-", GenomicRanges::end(selected.fragments))
+  colData <- data.frame(factor = samples[, 1])
+  rownames(colData) <- paste(samples[, 1], samples[, 2])
+  
+  # 
+  dds <- DESeq2::DESeqDataSetFromMatrix(countData = read.count, colData = colData, 
+                                        design = ~factor)
+  dds <- DESeq2::DESeq(dds)
+  if (is.factor(samples[, 1])) {
+    res <- DESeq2::results(dds, contrast = c("factor", levels(samples[, 1])[1], 
+                                             levels(samples[, 1])[2]))
+  } else {
+    res <- DESeq2::results(dds, contrast = c("factor", unique(samples[, 1])[1], 
+                                             unique(samples[, 1])[2]))
+  }
+  
+  baseMean.sample <- DESeq2::counts(dds, normalized = TRUE)
+  baseMean.sample <- baseMean.sample[!is.na(res$padj) & res$padj < significance, 
+                                     ]
+  res <- res[!is.na(res$padj) & res$padj < significance, ]
+  
+  tmp <- strsplit(row.names(res), "[:-]")
+  res.gr <- GenomicRanges::GRanges(seqnames = sapply(tmp, "[", 1), ranges = IRanges::IRanges(start = as.numeric(sapply(tmp, 
+                                                                                                                       "[", 2)), end = as.numeric(sapply(tmp, "[", 3))), strand = "*", score = round(1000 * 
+                                                                                                                                                                                                       (-log10(res$padj)/max(-log10(res$padj)))), log2FoldChange = res$log2FoldChange, 
+                                   lfcSE = res$lfcSE, padj = res$padj)
+  GenomicRanges::mcols(res.gr) <- cbind(GenomicRanges::mcols(res.gr), as.data.frame(baseMean.sample))
+  
+  return(res.gr)
+}
+
+```
+
+```{r}
+results <- getEnrichedDamRegions_PE(samples,fragments, significance = 1)
+write.csv(as.data.frame(results),file = "iDEAR.results.csv")
+```
+
+As mentioned above, the value for the parameter ``fragments`` can be the path to a bed file or the result of the function ``getDpnIFragments``.
+
+After running the previous snippet the results variable contains the coordinates of the identified regions as a GRanges object with additional columns. The column ``log2FoldChange`` indicates the fold change of POI versus the control in log2. Taking into account this column it is possible to separate the "positive", or bound, and "negative" regions if necessary.
+
+```{r}
+poi.positive <- results[mcols(results)$log2FoldChange > 0, ]
+poi.negative <- results[mcols(results)$log2FoldChange < 0, ]
+write.csv(poi.positive,file = "poi.positive.csv")
+write.csv(poi.negative,file = "poi.negative.csv")
+```
+
+**Visualization**
+
+Optionally, for visualization purposes, you can use the function saveBigWigScore that will generate a bigWig file with the log2 fold change of the average normalized read coverage between the POI and the control replicates. The resulting file can be displayed, for instance, in the UCSC genome brower or tools like IGV.
+
+```{r}
+# saveBigWigScore(samples,BSgenome.Dmelanogaster.UCSC.dm6,'my_Analysis_bin100.bw')
+# saveBigWigScore(samples,BSgenome.Dmelanogaster.UCSC.dm6,'my_Analysis_bin80.bw',window.width =80)
+#saveBigWigScore(samples,BSgenome.Dmelanogaster.UCSC.dm6,'my_Analysis_bin70.bw',window.width =70)
+#error    window.width >= length(reads)
+```
+
+**When window.width >= length(reads)**
+
+```{r}
+library(rtracklayer)
+library(GenomicRanges)
+library(GenomicAlignments)
+```
+
+```{r}
+file.name <- 'my_Analysis_bin30.bw'
+genome <- BSgenome.Dmelanogaster.UCSC.dm6
+window.width = 30
+
+# when window.width < length(reads),first resize reads!!!
+ResizeReads <- function(reads, width=1, fix="start", ...) {
+  reads <- as(reads, "GRanges")
+  stopifnot(all(strand(reads) != "*"))
+  resize(reads, width=window.width, fix=fix, ...)
+}
+
+tiles <- GenomicRanges::tileGenome(BSgenome::seqinfo(genome), 
+                                   tilewidth = window.width, cut.last.tile.in.chrom = TRUE)
+
+read.count <- GenomicAlignments::summarizeOverlaps(tiles, 
+                                                   as.character(samples[, 3]), ignore.strand = T,preprocess.reads=ResizeReads)
+
+totals <- apply(SummarizedExperiment::assay(read.count), 2, sum)
+
+norm.count <- t(apply(SummarizedExperiment::assay(read.count), 
+                      1, "/", totals)) * 1e+06
+
+idx.sample1 <- which(samples[, 1] == levels(samples[,1])[1])
+
+idx.sample2 <- which(samples[, 1] == levels(samples[,1])[2])
+
+value <- log2((apply(norm.count[, idx.sample1], 1, sum)/length(idx.sample1) + 
+                 1)/(apply(norm.count[, idx.sample2], 1, sum)/length(idx.sample2) + 
+                       1))
+
+GenomicRanges::score(tiles) <- value
+
+rtracklayer::export.bw(tiles, file.name)
+```
+
+# Annotate Peaks By Homer
+
+## export to HOMER annotatePeaks.pl
+
+```{r}
+iDEAR.data <- as.data.frame(results)
+
+results_for_anno <- transmute(iDEAR.data,PeakID = paste0(seqnames,"-",rownames(iDEAR.data),sep=""),Chr = seqnames,
+               Start = start,End = end,Strand = rep("+",length(rownames(iDEAR.data))))
+iDEAR.data$PeakID <- paste0(iDEAR.data$seqnames,"-",rownames(iDEAR.data),sep="")
+
+head(results_for_anno)
+write.table(results_for_anno,file = "df.peaks.txt",row.names = FALSE,quote = FALSE,sep = "\t")
+system("annotatePeaks.pl df.peaks.txt dm6 > df.peaks.annotated.txt -gtf /data0/reference/UCSC/dm6/Annotation/Archives/archive-2015-07-24-09-25-49/Genes/genes.gtf")
+```
+
+## 合并iDEAR结果和HOMER注释结果
+
+```{r}
+res.anno <- read.delim(file = "df.peaks.annotated.txt",header = TRUE,sep = "\t")
+colnames(res.anno)[1] <- "PeakID"
+
+res.final <- merge(iDEAR.data,res.anno[,-7:-2],by= "PeakID")
+head(res.final)
+length(unique(res.final$Gene.Name))
+write.csv(res.final,file = "iDEAR.results.annotated.csv")
+
+file.remove(c("df.peaks.txt","df.peaks.annotated.txt"))
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```

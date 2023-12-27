@@ -1,0 +1,249 @@
+---
+title: "Step4.0 Batch QC of the Raw Rds files"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  collapse = TRUE,
+  fig.align = "center")
+```
+
+>[Exploring a Poor Quality Sample](https://github.com/hbctraining/scRNA-seq_online/blob/master/lessons/QC_bad_data.md)
+
+```{r}
+Single.dir <- "../SingleSample/Cellbender-Seurat-Scrublet"
+assay.use <- "CellBender"
+prefix.removed <- "" # prefix in orig.ident to be removed, such as: "APCmin_Mouse_Colon_"
+Raw.rds.dir <- "/2.2-Raw-Rds"
+qc.full.path <- "3.1-QC-Passed-Cells-Rds/qc.statics.csv"
+```
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(ggridges))
+suppressMessages(library(knitr))
+suppressMessages(library(DT))
+```
+
+# import and merge all samples
+
+```{r}
+#AnalysisDirs <- grep("Colon",list.dirs("../Single-Sample/Cellbender-Seurat-Scrublet",recursive = FALSE,full.names = TRUE),value = TRUE)
+AnalysisDirs <- list.dirs(Single.dir,recursive = FALSE,full.names = TRUE)
+rds.files <- list.files(paste(AnalysisDirs,Raw.rds.dir,sep = ""),pattern = "rds$",full.names = TRUE)
+basename(rds.files)
+```
+
+```{r}
+obj.list <- lapply(rds.files, function(pbmc){
+  # message("* Processing sample: ",pbmc)
+  cds <- readRDS(pbmc)
+  # message("Project Name is ", cds@project.name)
+  ## Remove cells with zero UMI counts
+  # Attention, some cells has zero CellBender revised UMI counts. This is a bug in cellbender step.
+  cells.kept <- colnames(cds)[cds@meta.data[,paste("nCount", assay.use,sep = "_")] > 0]
+  cds <- subset(cds, cells = cells.kept)
+  return(cds)
+})
+# obj.list
+```
+
+
+# Merge and Relevel all samples
+
+```{r}
+immune.combined <- merge(obj.list[[1]], obj.list[-1])
+DefaultAssay(immune.combined) <- assay.use
+immune.combined@meta.data$orig.ident <- factor(immune.combined@meta.data$orig.ident, 
+                                               levels = c("E_LI_D115_B1", "E_LI_D115_B2", "E_LI_D125_B1", "E_LI_D125_B2", 
+                                                          "E_LI_D135_B1", "E_LI_D145_B1", "E_LI_D145_B2", "E_LI_D155_B1",
+                                                          "E_LI_D195_B1", "P_LI_D1_B1", "P_LI_D1_B2", "P_LI_D7_B1",
+                                                          "P_LI_D7_B1Re", "P_LI_D7_B1Merge", "P_LI_D21_B1", "P_LI_D21_B2",
+                                                          "P_LI_D21_B2Re","P_LI_D21_B2Merge","P_LI_DAdult_B1"
+                                                          ))
+```
+
+
+```{r}
+immune.combined[["percent.mt"]] <- PercentageFeatureSet(immune.combined, pattern = "^mt-",assay = DefaultAssay(immune.combined))
+immune.combined[[paste("nCount",DefaultAssay(immune.combined),"RemoveMT",sep = "_")]] <- immune.combined[[paste("nCount", DefaultAssay(immune.combined),sep = "_")]]*(1-immune.combined[["percent.mt"]]/100)
+immune.combined[["log10GenesPerUMI"]] <- log10(immune.combined[[paste("nFeature", DefaultAssay(immune.combined),sep = "_")]]) / log10(immune.combined[[paste("nCount", DefaultAssay(immune.combined),sep = "_")]])
+```
+
+```{r}
+immune.combined[["short.name"]] <- gsub(prefix.removed,"",immune.combined@meta.data$orig.ident)
+immune.combined[["short.name"]] <- factor(immune.combined$short.name,levels = gsub(prefix.removed,"",levels(immune.combined@meta.data$orig.ident)))
+```
+
+
+# Vlnplot of QC markers
+
+```{r fig.width=24,fig.height=20}
+qc.keys <- c(colnames(immune.combined@meta.data)[2:10])
+VlnPlot(immune.combined, features = qc.keys, ncol = 4,group.by = "short.name",pt.size = 0)
+```
+
+```{r}
+df <- immune.combined@meta.data
+# check df
+df[which(is.na(df$nCount_CellBender_RemoveMT)),]
+```
+
+## Cell Counts
+
+```{r}
+ggplot(df, aes(x=short.name, fill=short.name)) +
+  geom_bar(stat="Count") +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=45, hjust=1))
+
+```
+
+# UMI counts per cell
+
+```{r}
+ggplot(df, aes(x = nCount_RNA, y = short.name, fill = short.name)) +
+	geom_density_ridges(alpha = 0.7,quantile_lines = TRUE,quantiles = 0.25) +
+	theme_ridges() + 
+  scale_x_log10() +
+  geom_vline(aes(xintercept=1e3),linetype = "dashed") +
+	theme(legend.position = "none")
+```
+
+```{r}
+ggplot(df, aes(x = nCount_CellBender_RemoveMT + 1, y = short.name, fill = short.name)) +
+	geom_density_ridges(alpha = 0.7) +
+	theme_ridges() + 
+  scale_x_log10() +
+  geom_vline(aes(xintercept=801),linetype = "dashed") +
+	theme(legend.position = "none")
+```
+
+# Genes detected per cell
+
+```{r}
+ggplot(df, aes(x = nFeature_RNA , y = short.name, fill = short.name)) +
+	geom_density_ridges(alpha = 0.7) +
+	theme_ridges() + 
+  scale_x_log10() +
+  geom_vline(aes(xintercept=500),linetype = "dashed") +
+	theme(legend.position = "none")
+```
+
+```{r}
+ggplot(df, aes(x = nFeature_CellBender + 1 , y = short.name, fill = short.name)) +
+	geom_density_ridges(alpha = 0.7) +
+	theme_ridges() + 
+  scale_x_log10() +
+  geom_vline(aes(xintercept=501),linetype = "dashed") +
+	theme(legend.position = "none")
+```
+
+# UMIs vs. genes detected
+
+
+```{r fig.width=19,fig.height=15}
+df %>% 
+  	ggplot(aes(x=nCount_CellBender_RemoveMT, y=nFeature_CellBender, color=percent.mt > 20)) + 
+  	geom_point(alpha = 0.5,size = 0.1) + 
+  	stat_smooth(method=lm) +
+  	scale_x_log10() + 
+  	scale_y_log10() + 
+  	theme_classic() +
+  	geom_vline(xintercept = 1000,linetype = "dashed") +
+  	geom_hline(yintercept = 500,linetype = "dashed") +
+    facet_wrap(~short.name)
+```
+
+```{r}
+ggplot(df, aes(x = percent.mt + 1, y = short.name, fill = short.name)) +
+	geom_density_ridges(alpha = 0.7) +
+	theme_ridges() + 
+  scale_x_log10() +
+  geom_vline(aes(xintercept=21),linetype = "dashed") +
+	theme(legend.position = "none")
+```
+
+# Novelty
+
+```{r}
+ggplot(df, aes(x = log10GenesPerUMI, y = short.name, fill = short.name)) +
+	geom_density_ridges(alpha = 0.7) +
+	theme_ridges() + 
+  scale_x_log10() +
+  geom_vline(aes(xintercept=0.75),linetype = "dashed") +
+	theme(legend.position = "none")
+```
+
+# Filtered results
+
+```{r}
+QC.Cut <- function(SeuratObj){
+  sample.meta <- 
+    SeuratObj@meta.data %>%
+    select("orig.ident","nCount_CellBender_RemoveMT","nFeature_CellBender","percent.mt","log10GenesPerUMI") %>%
+    mutate(nCount_CellBender_RemoveMT = nCount_CellBender_RemoveMT > 1000 & nCount_CellBender_RemoveMT < 1e5,
+            nFeature_CellBender = nFeature_CellBender > 500,
+            percent.mt = percent.mt < 20,
+            log10GenesPerUMI = log10GenesPerUMI > 0.75)
+  sample.statics <- 
+    sample.meta %>%
+    group_by(orig.ident) %>%
+    summarise(nCount_CellBender_RemoveMT = sum(!nCount_CellBender_RemoveMT),
+            nFeature_CellBender = sum(!nFeature_CellBender),
+            percent.mt = sum(!percent.mt),
+            log10GenesPerUMI = sum(!log10GenesPerUMI),
+            cell.raw = n())
+  sample.meta.keep <- as.data.frame.matrix(table(sample.meta$orig.ident, unname(apply(sample.meta[,2:5],1,all))))
+  sample.info <- cbind(sample.statics,sample.meta.keep)
+  colnames(sample.info)[7:8] <- c("cells.removed","cells.kept")
+  sample.info
+}
+kable(QC.Cut(immune.combined),caption = "Statics using unified cutoff")
+```
+
+# QC cutoffs used and the effects
+
+
+```{r}
+#AnalysisDirs <- grep("Colon",list.dirs("../Single-Sample/Cellbender-Seurat-Scrublet",recursive = FALSE,full.names = TRUE),value = TRUE)
+AnalysisDirs <- list.dirs(Single.dir,recursive = FALSE,full.names = TRUE)
+qc.files <- paste(AnalysisDirs,qc.full.path,sep = "/")
+qc.files
+```
+```{r}
+qc.csv <- lapply(qc.files,function(x){
+  read.csv(x,stringsAsFactors = FALSE)
+})
+qc.res <- Reduce(rbind,qc.csv)
+qc.res <- qc.res[,-1]
+DT::datatable(qc.res,  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 30, 
+                             autoWidth = TRUE,
+                             scrollX = TRUE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = TRUE,
+                             fixedColumns = TRUE)
+              )
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+

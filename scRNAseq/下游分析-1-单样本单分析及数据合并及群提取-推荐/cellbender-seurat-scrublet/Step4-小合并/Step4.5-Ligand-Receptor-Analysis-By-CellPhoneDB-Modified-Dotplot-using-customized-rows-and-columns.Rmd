@@ -1,0 +1,120 @@
+---
+title: "Dotplot"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = -1,message = -1)
+```
+
+>[Code from CellPhoneDB]()
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+```
+
+
+```{r}
+prepare_data <- function(selected_rows = NULL,
+                         selected_columns = NULL,
+                         means_path = './means.txt',
+                         pvalues_path = './pvalues.txt',
+                         means_separator = '\t',
+                         pvalues_separator = '\t'){
+  all_pval = read.table(pvalues_path, header=T, stringsAsFactors = F, sep=means_separator, comment.char = '', check.names=F)
+  all_means = read.table(means_path, header=T, stringsAsFactors = F, sep=pvalues_separator, comment.char = '', check.names=F)
+  
+  intr_pairs = all_pval$interacting_pair
+
+  all_pval = all_pval[,-c(1:11)]
+  all_means = all_means[,-c(1:11)]
+  
+  selected_rows <- intersect(selected_rows,intr_pairs)
+  
+  if(is.null(selected_rows)){
+    selected_rows = intr_pairs
+  }
+  
+  if(is.null(selected_columns)){
+    selected_columns = colnames(all_pval)
+  }
+  
+  sel_pval = all_pval[match(selected_rows, intr_pairs), selected_columns]
+  sel_means = all_means[match(selected_rows, intr_pairs), selected_columns]
+
+  
+  df_names = expand.grid(selected_rows, selected_columns)
+  pval = unlist(sel_pval)
+  pval[pval==0] = 0.0009
+  plot.data = cbind(df_names,pval)
+  pr = unlist(as.data.frame(sel_means))
+  #pr[round(pr,4)==0] = 1 # why not 0.01
+  pr[pr==0] = 0.001 # the minimum value in mean file is 0.001
+  plot.data = cbind(plot.data,log2(pr))
+  colnames(plot.data) = c('pair', 'clusters', 'pvalue', 'mean')
+  return(plot.data)
+}
+```
+
+
+```{r}
+LR.Pairs.selected <- read.table("./rows.txt",stringsAsFactors = FALSE, col.names = 1)[,1]
+Cluster.Pair.selected <- read.table("./columns.txt",stringsAsFactors = FALSE)[,1]
+```
+
+```{r}
+Plot.data <- prepare_data(selected_rows = LR.Pairs.selected,
+                               selected_columns = Cluster.Pair.selected,
+                               means_path = './means.txt',
+                               pvalues_path = './pvalues.txt',
+                               means_separator = '\t',
+                               pvalues_separator = '\t')
+
+# Plot.data$clusters <- factor(Plot.data$clusters,levels = c(Cluster.Pair.selected))
+```
+
+
+```{r fig.width=10,fig.height=8}
+my_palette <- colorRampPalette(c("black", "blue", "yellow", "red"), alpha=TRUE)(n=399)
+
+ggplot(Plot.data,aes(x=pair,y=clusters)) +
+  geom_point(aes(size=-log10(pvalue),color=mean)) +
+  scale_color_gradientn('Log2 mean (Molecule 1, Molecule 2)', colors=my_palette) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text=element_text(size=14, colour = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.text.y = element_text(size=12, colour = "black"),
+        axis.title=element_blank(),
+        legend.position = "bottom",
+        panel.border = element_rect(size = 0.7, linetype = "solid", colour = "black"))
+```
+
+
+```{r fig.width=10,fig.height=8}
+Plot.data$type <- unlist(lapply(strsplit(as.character(Plot.data$clusters),split = "_"),"[",1))
+Plot.data$clusters <- gsub("(Large-Intestine_)|(Small-Intestine_)","",Plot.data$clusters)
+
+ggplot(Plot.data,aes(x=pair,y=clusters)) +
+  geom_point(aes(size=-log10(pvalue),color=mean)) +
+  scale_color_gradientn('Log2 mean (Molecule 1, Molecule 2)', colors=my_palette) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text=element_text(size=14, colour = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.text.y = element_text(size=12, colour = "black"),
+        axis.title=element_blank(),
+        legend.position = "bottom",
+        panel.border = element_rect(size = 0.7, linetype = "solid", colour = "black")) +
+  facet_grid("type")
+```
