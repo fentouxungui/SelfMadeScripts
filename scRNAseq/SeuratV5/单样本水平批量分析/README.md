@@ -43,7 +43,7 @@ $ tree -L 2
 
 ## 每个样本分别运行Seurat
 
-每个样本分别设定QC cutoff，然后再Knit。
+逐个样本运行``Seurat.Rmd``，每个样本分别设定QC cutoff，然后再Knit。
 
 分群，降维，以及计算各群的marker基因。
 

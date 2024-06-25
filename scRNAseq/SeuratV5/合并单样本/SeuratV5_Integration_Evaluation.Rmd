@@ -1,0 +1,101 @@
+---
+title: "Seurat Integration Results Evaluation"
+author: "Zhang Yongchao"
+output:
+  html_document:
+    theme: united
+  pdf_document: default
+date: 'Compiled: `r format(Sys.Date(), "%B %d, %Y")`'
+---
+
+```{r setup, include=FALSE}
+all_times <- list()  # store the time for each chunk
+knitr::knit_hooks$set(time_it = local({
+  now <- NULL
+  function(before, options) {
+    if (before) {
+      now <<- Sys.time()
+    } else {
+      res <- difftime(Sys.time(), now, units = "secs")
+      all_times[[options$label]] <<- res
+    }
+  }
+}))
+knitr::opts_chunk$set(
+  tidy = 'styler',
+  fig.width = 8,
+  message = FALSE,
+  warning = FALSE,
+  time_it = TRUE,
+  error = TRUE
+)
+```
+
+```{r}
+.libPaths("/data0/reference/software/miniconda-envs/seuratV5/lib/R/library")
+library(Seurat)
+library(clustree)
+library(ggplot2)
+library(patchwork)
+```
+
+```{r}
+cds <- readRDS("./merged.rds")
+```
+
+# 各方法的不同分辨率的分群一致性
+
+```{r fig.width=8,fig.height=6}
+clustree(cds@meta.data, prefix = 'cca_clusters_res_')
+clustree(cds@meta.data, prefix = 'scvi_clusters_res_')
+clustree(cds@meta.data, prefix = 'rpca_clusters_res_')
+clustree(cds@meta.data, prefix = 'harmony_clusters_res_')
+clustree(cds@meta.data, prefix = 'mnn_clusters_res_')
+```
+
+# 各方法的降纬结果
+
+```{r fig.width=10,fig.height=5}
+DimPlot(cds,group.by = "mnn_clusters_res_0.6",split.by = "orig.ident",reduction = "tsne.mnn")
+DimPlot(cds,group.by = "mnn_clusters_res_0.6",split.by = "orig.ident",reduction = "umap.mnn")
+
+DimPlot(cds,group.by = "cca_clusters_res_0.6",split.by = "orig.ident",reduction = "tsne.cca")
+DimPlot(cds,group.by = "cca_clusters_res_0.6",split.by = "orig.ident",reduction = "umap.cca")
+
+DimPlot(cds,group.by = "rpca_clusters_res_0.6",split.by = "orig.ident",reduction = "tsne.rpca")
+DimPlot(cds,group.by = "rpca_clusters_res_0.6",split.by = "orig.ident",reduction = "umap.rpca")
+
+DimPlot(cds,group.by = "harmony_clusters_res_0.6",split.by = "orig.ident",reduction = "tsne.harmony")
+DimPlot(cds,group.by = "harmony_clusters_res_0.6",split.by = "orig.ident",reduction = "umap.harmony")
+
+DimPlot(cds,group.by = "scvi_clusters_res_0.6",split.by = "orig.ident",reduction = "tsne.scvi")
+DimPlot(cds,group.by = "scvi_clusters_res_0.6",split.by = "orig.ident",reduction = "umap.scvi")
+```
+# 各方法的细胞质控
+
+```{r fig.width=8,fig.height=16}
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "tsne.mnn", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "umap.mnn", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "tsne.scvi", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "umap.scvi", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "tsne.rpca", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "umap.rpca", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "tsne.cca", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "umap.cca", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "tsne.harmony", split.by = "orig.ident")
+FeaturePlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "umap.harmony", split.by = "orig.ident")
+```
+```{r fig.width=16,fig.height=8}
+VlnPlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), split.by = "orig.ident", ncol = 2,pt.size = 0,group.by = "mnn_clusters_res_0.6")
+VlnPlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), split.by = "orig.ident", ncol = 2,pt.size = 0,group.by = "cca_clusters_res_0.6")
+VlnPlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), split.by = "orig.ident", ncol = 2,pt.size = 0,group.by = "rpca_clusters_res_0.6")
+VlnPlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), split.by = "orig.ident", ncol = 2,pt.size = 0,group.by = "harmony_clusters_res_0.6")
+VlnPlot(cds, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "log10GenesPerUMI"), split.by = "orig.ident", ncol = 2,pt.size = 0,group.by = "scvi_clusters_res_0.6")
+```
+
+<details>
+  <summary>**Session Info**</summary>
+```{r}
+sessionInfo()
+```
+</details>

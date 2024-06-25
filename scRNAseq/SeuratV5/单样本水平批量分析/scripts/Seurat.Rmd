@@ -1,5 +1,5 @@
 ---
-title: "Step1-Seurat"
+title: "Seurat for Single Sample"
 author: "Zhang Yongchao"
 date: "`r format(Sys.time(), '%d %B, %Y')`"
 output: 
@@ -15,10 +15,11 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Seurat - Guided Clustering Tutorial
 
-see: https://satijalab.org/seurat/v3.1/pbmc3k_tutorial.html
+see: https://satijalab.org/seurat/articles/pbmc3k_tutorial
 
 ```{r}
-.libPaths(.libPaths()[2])
+.libPaths("/data0/reference/software/miniconda-envs/seuratV5/lib/R/library")
+source("./functions.R")
 suppressMessages(library(dplyr)) 
 suppressMessages(library(Seurat))
 suppressMessages(library(patchwork))
@@ -29,13 +30,18 @@ suppressMessages(library(scater))
 suppressMessages(library(DT))
 ```
 
+```{r}
+# 设置物种名字，用于识别线粒体基因，计算线粒体基因的表达占比。
+mt.species <- c(mouse = "^Mt:", fly = "^mt:", human = "^MT-")
+species <- "human"
+```
+
+
 ## import data
 
 ```{r}
 project.name <- basename(getwd())
-matrix.dir <- readRDS("CellRanger_Matrix_path.rds")
-matrix.dir
-cellranger_mat <- Read10X(data.dir = matrix.dir)
+cellranger_mat <- Read10X(data.dir = "../../../matrix/2403067_ST_lL972/filtered_feature_bc_matrix/")
 pbmc <- CreateSeuratObject(counts = cellranger_mat, project = project.name)
 pbmc
 ```
@@ -43,9 +49,12 @@ pbmc
 ## QC
 
 ```{r fig.width=8,fig.height=4}
-pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^mt:")
+pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = unname(mt.species[species]))
 pbmc[["log10GenesPerUMI"]] <- log10(pbmc$nFeature_RNA) / log10(pbmc$nCount_RNA)
 VlnPlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "log10GenesPerUMI"), ncol = 4,pt.size = 0) &   theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+VlnPlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "log10GenesPerUMI"), ncol = 4) &   theme(axis.title.x=element_blank(),
         axis.text.x=element_blank(),
         axis.ticks.x=element_blank())
 ```
@@ -69,14 +78,13 @@ plotHighestExprs(as.SingleCellExperiment(pbmc))
 ## save a demo QC matrix
 
 ```{r}
-source("./functions.R")
 pbmc <- qc_filter(obj = pbmc,
-                  nFeature_RNA.min = 800,
-                  nFeature_RNA.max = 5000,
+                  nFeature_RNA.min = 1000,
+                  nFeature_RNA.max = 8000,
                   nCount_RNA.min = 3000,
-                  nCount_RNA.max = 2e4,
-                  percent.mt.max = 15,
-                  log10GenesPerUMI.min = 0.75)
+                  nCount_RNA.max = 5e4,
+                  percent.mt.max = 10,
+                  log10GenesPerUMI.min = 0.8)
 ```
 
 ```{r fig.width=8,fig.height=4}
@@ -84,6 +92,7 @@ VlnPlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "log10Gen
         axis.text.x=element_blank(),
         axis.ticks.x=element_blank())
 ```
+
 ```{r fig.width=12,fig.height=6}
 plot1 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "percent.mt") + NoLegend()
 plot2 <- FeatureScatter(pbmc, feature1 = "nCount_RNA", feature2 = "nFeature_RNA") + NoLegend()
@@ -128,9 +137,11 @@ VizDimLoadings(pbmc, dims = 1:2, reduction = "pca")
 ```{r fig.width=7,fig.height=7}
 DimPlot(pbmc, reduction = "pca") + NoLegend()
 ```
+
 ```{r fig.width=7,fig.height=7}
 DimHeatmap(pbmc, dims = 1, cells = 500, balanced = TRUE)
 ```
+
 ```{r fig.width=12,fig.height=20}
 DimHeatmap(pbmc, dims = 1:15, cells = 500, balanced = TRUE)
 ```
@@ -150,8 +161,12 @@ pbmc <- FindNeighbors(pbmc, dims = 1:20) %>% FindClusters(resolution = c(0.2,0.4
 Idents(pbmc) <- "RNA_snn_res.1"
 pbmc <- RunUMAP(pbmc, dims = 1:20)
 pbmc <- RunTSNE(pbmc, dims = 1:20)
-DimPlot(pbmc, reduction = "umap")
-DimPlot(pbmc, reduction = "tsne")
+DimPlot(pbmc, reduction = "umap", label = TRUE)
+DimPlot(pbmc, reduction = "tsne", label = TRUE)
+```
+```{r fig.width=14,fig.height=12}
+FeaturePlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "umap") 
+FeaturePlot(pbmc, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "log10GenesPerUMI"), reduction = "tsne") 
 ```
 
 ## Finding differentially expressed features (cluster biomarkers)

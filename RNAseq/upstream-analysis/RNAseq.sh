@@ -677,6 +677,8 @@ echo ">>>>>>>>>>> Step-4:  Bamfiles correlation Plots <<<<<<<<<<<"
 cd ${star_mapping_path}
 star_bam_files=$(ls *Aligned.sortedByCoord.out.bam)
 star_sample_Labels=$(ls *Aligned.sortedByCoord.out.bam | xargs -n1 sh -c 'echo ${0//.Aligned.sortedByCoord.out.bam}')
+star_bam_files_number=`ls *.bam | wc -l`
+
 multiBamSummary bins \
     --bamfiles $star_bam_files \
     --minMappingQuality 30 \
@@ -685,20 +687,24 @@ multiBamSummary bins \
     --outFileName readCounts.npz \
     --outRawCounts readCounts.tab
 
-star_bam_files_number=`ls *.bam | wc -l`
+
 if [ $star_bam_files_number -ge 3 ]
 then
     plot_bam_function
-fi
-plotPCA  \
+    plotPCA  \
     -in readCounts.npz \
     --plotTitle "PCA plot of Read Counts" \
     -o PCA_readCounts.png
+fi
+
+
 
 # Hisat2 Bam files
 cd ${hisat2_mapping_path}
 hisat2_bam_files=$(ls *.bam)
 hisat2_sample_Labels=$(ls *.bam | xargs -n1 sh -c 'echo ${0//.accepted_hits.bam}')
+hisat2_bam_files_number=`ls *.bam | wc -l`
+
 multiBamSummary bins \
     --bamfiles $hisat2_bam_files \
     --minMappingQuality 30 \
@@ -707,15 +713,17 @@ multiBamSummary bins \
     --outFileName readCounts.npz \
     --outRawCounts readCounts.tab
 
-hisat2_bam_files_number=`ls *.bam | wc -l`
+
+
 if [ $hisat2_bam_files_number -ge 3 ]
 then
     plot_bam_function
-fi
-plotPCA  \
+    plotPCA  \
     -in readCounts.npz \
     --plotTitle "PCA plot of Read Counts" \
     -o PCA_readCounts.png
+fi
+
 
 echo ">>>>>>>>>>> Step-5:  Generate BW files <<<<<<<<<<<"
 # STAR Bam files

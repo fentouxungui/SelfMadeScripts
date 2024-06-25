@@ -1,0 +1,216 @@
+---
+title: "MAGeCKFlute"
+author: "Zhang Yongcaho"
+date: "2024-05-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(tidy=FALSE, cache=TRUE,
+                      dev="png", message=FALSE, error=FALSE, warning=TRUE)
+```
+
+ref: https://bioconductor.org/packages/devel/bioc/vignettes/MAGeCKFlute/inst/doc/MAGeCKFlute.html
+
+# Install and load the required packages
+
+```{r}
+if(!"MAGeCKFlute" %in% installed.packages()) BiocManager::install("MAGeCKFlute")
+if(!"clusterProfiler" %in% installed.packages()) BiocManager::install("clusterProfiler")
+if(!"ggplot2" %in% installed.packages()) BiocManager::install("ggplot2")
+
+library(MAGeCKFlute)
+library(clusterProfiler)
+library(ggplot2)
+```
+
+# 2 Step by step analysis
+
+## 2.1 Section I: Quality control
+
+### 2.1.1 Input data
+
+```{r}
+file4 = file.path(system.file("extdata", package = "MAGeCKFlute"),
+                  "testdata/countsummary.txt")
+countsummary = read.delim(file4, check.names = FALSE)
+head(countsummary)
+```
+
+### 2.1.2 Visualize the QC results
+
+```{r}
+# Gini index
+BarView(countsummary, x = "Label", y = "GiniIndex",
+        ylab = "Gini index", main = "Evenness of sgRNA reads")
+```
+
+```{r}
+# Missed sgRNAs
+countsummary$Missed = log10(countsummary$Zerocounts)
+BarView(countsummary, x = "Label", y = "Missed", fill = "#394E80",
+        ylab = "Log10 missed gRNAs", main = "Missed sgRNAs")
+```
+
+```{r}
+# Read mapping
+MapRatesView(countsummary)
+```
+
+```{r}
+# Or
+countsummary$Unmapped = countsummary$Reads - countsummary$Mapped
+gg = reshape2::melt(countsummary[, c("Label", "Mapped", "Unmapped")], id.vars = "Label")
+gg$variable = factor(gg$variable, levels = c("Unmapped", "Mapped"))
+gg = gg[order(gg$Label, gg$variable), ]
+p = BarView(gg, x = "Label", y = "value", fill = "variable", 
+            position = "stack", xlab = NULL, ylab = "Reads", main = "Map ratio")
+p + scale_fill_manual(values = c("#9BC7E9", "#1C6DAB"))
+```
+
+
+## 2.2 Section II: Downstream analysis of MAGeCK RRA
+
+### 2.2.1 Read the required data
+
+```{r}
+file1 = file.path(system.file("extdata", package = "MAGeCKFlute"),
+                  "testdata/rra.gene_summary.txt")
+gdata = ReadRRA(file1)
+head(gdata)
+```
+
+
+```{r}
+file2 = file.path(system.file("extdata", package = "MAGeCKFlute"),
+                  "testdata/rra.sgrna_summary.txt")
+sdata = ReadsgRRA(file2)
+head(sdata)
+```
+
+
+## 2.3 To incorporate depmap data that are profiled in human cell lines, we will convert mouse gene names to homologous human genes for this dataset.
+
+```{r}
+gdata$HumanGene = TransGeneID(gdata$id, fromType = "symbol", toType = "symbol",
+                              fromOrg = "mmu", toOrg = "hsa")
+sdata$HumanGene = TransGeneID(sdata$Gene, fromType = "symbol", toType = "symbol",
+                              fromOrg = "mmu", toOrg = "hsa")
+```
+
+### 2.3.1 Compute the similarity between the CRISPR screen with Depmap screens
+
+```{r}
+## Remove missing or duplicate human genes
+idx = duplicated(gdata$HumanGene)|is.na(gdata$HumanGene)
+gdata = gdata[!idx, ]
+depmap_similarity = ResembleDepmap(gdata, symbol = "HumanGene", score = "Score")
+head(depmap_similarity)
+```
+
+### 2.3.2 Omit common essential genes from the data
+
+```{r}
+gdata = OmitCommonEssential(gdata, symbol = "HumanGene")
+sdata = OmitCommonEssential(sdata, symbol = "HumanGene")
+```
+
+### 2.3.3Visualization of negative selections and positive selections
+
+#### 2.3.3.1 Volcano plot
+
+```{r}
+gdata$LogFDR = -log10(gdata$FDR)
+p1 = ScatterView(gdata, x = "Score", y = "LogFDR", label = "id", 
+                 model = "volcano", top = 5)
+print(p1)
+```
+
+```{r}
+# Or
+p2 = VolcanoView(gdata, x = "Score", y = "FDR", Label = "id")
+print(p2)
+```
+
+#### 2.3.3.2 Rank plot
+
+```{r}
+gdata$Rank = rank(gdata$Score)
+p1 = ScatterView(gdata, x = "Rank", y = "Score", label = "id", 
+                 top = 5, auto_cut_y = TRUE, ylab = "Log2FC", 
+                 groups = c("top", "bottom"))
+print(p1)
+```
+
+```{r}
+ScatterView(gdata, x = "Rank", y = "Score", label = "id", top = 5, 
+            auto_cut_y = TRUE, groups = c("top", "bottom"), 
+            ylab = "Log2FC", toplabels = c("Pbrm1", "Arid2", "Brd7"))
+```
+
+
+```{r}
+geneList= gdata$Score
+names(geneList) = gdata$id
+p2 = RankView(geneList, top = 5, bottom = 10)
+print(p2)
+```
+
+```{r}
+RankView(geneList, top = 0, bottom = 0, genelist = c("Pbrm1", "Arid2", "Brd7"))
+```
+
+#### 2.3.3.3 Dot plot
+
+```{r}
+gdata$RandomIndex = sample(1:nrow(gdata), nrow(gdata))
+gdata = gdata[order(-gdata$Score), ]
+gg = gdata[gdata$Score>0, ]
+p1 = ScatterView(gg, x = "RandomIndex", y = "Score", label = "id",
+                 y_cut = CutoffCalling(gdata$Score,2), 
+                 groups = "top", top = 5, ylab = "Log2FC")
+p1
+```
+
+```{r}
+gg = gdata[gdata$Score<0, ]
+p2 = ScatterView(gg, x = "RandomIndex", y = "Score", label = "id",
+                 y_cut = CutoffCalling(gdata$Score,2), 
+                 groups = "bottom", top = 5, ylab = "Log2FC")
+p2
+```
+
+#### 2.3.3.4 sgRankView - visualize the rank of sgRNAs targeting top selected genes.
+
+```{r}
+p2 = sgRankView(sdata, top = 4, bottom = 4)
+print(p2)
+```
+
+### 2.3.4 Enrichment analysis
+
+```{r}
+geneList= gdata$Score
+names(geneList) = gdata$id
+enrich_pos = EnrichAnalyzer(geneList = geneList[geneList>0.5], 
+                            method = "HGT", type = "KEGG")
+enrich_neg = EnrichAnalyzer(geneList = geneList[geneList< -0.5], 
+                            method = "HGT", type = "KEGG")
+```
+
+#### 2.3.4.1 Visualization of enrichment results
+
+```{r}
+EnrichedView(enrich_pos, mode = 1, top = 5, bottom = 0)
+```
+
+```{r}
+EnrichedView(enrich_pos, mode = 2, top = 5, bottom = 0)
+```
+
+```{r}
+EnrichedView(enrich_neg, mode = 2, top = 0, bottom = 5)
+```
+
+
+

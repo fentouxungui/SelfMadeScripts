@@ -1,5 +1,6 @@
 ---
 title: "Integrative analysis in Seurat v5"
+author: "Zhang Yongchao"
 output:
   html_document:
     theme: united
@@ -33,7 +34,10 @@ knitr::opts_chunk$set(
 ```{r init}
 .libPaths("/data0/reference/software/miniconda-envs/seuratV5/lib/R/library")
 library(Seurat)
+library(SeuratData)
 library(SeuratWrappers)
+# library(Azimuth)
+library(clustree)
 library(ggplot2)
 library(patchwork)
 options(future.globals.maxSize = 1e9)
@@ -47,17 +51,28 @@ For this vignette, we use a [dataset of human PBMC profiled with seven different
 ## Layers in the Seurat v5 object
 Seurat v5 assays store data in layers. These layers can store raw, un-normalized counts (`layer='counts'`), normalized data (`layer='data'`), or z-scored/variance-stabilized data (`layer='scale.data'`). We can load in the data, remove low-quality cells, and obtain predicted cell annotations (which will be useful for assessing integration later), using our [Azimuth pipeline](https://satijalab.github.io/azimuth/articles/run_azimuth_tutorial.html).
 
-```{r readdata, include=FALSE, eval=TRUE}
-single.dir <- "../singlesample/"
-obj.list <- list()
-for (i in list.dirs(single.dir,full.names = TRUE,recursive = FALSE)) {
-  temp <- readRDS(paste0(i,"/1.Rds-file/",basename(i),".rds"))
-  obj.list[[basename(i)]] <- temp
-}
+```{r installdata, include=FALSE, eval=TRUE}
+# InstallData("pbmcref")
+# InstallData("pbmcsca")
 ```
 
-```{r mergedata, include=FALSE, eval=TRUE}
-obj <- merge(obj.list[[1]], obj.list[-1])
+```{r}
+st_il972 <- readRDS("../../single/ST_lL972/1.Rds-file/ST_lL972.rds")
+st72 <- readRDS("../../single/ST72/1.Rds-file/ST72.rds")
+```
+
+```{r}
+obj <- merge(st_il972, st72)
+obj
+```
+
+```{r loadannotate, message=FALSE}
+# load in the pbmc systematic comparative analysis dataset
+# obj <- LoadData("pbmcsca")
+# obj  <- subset(obj, nFeature_RNA > 1000)
+# obj <- RunAzimuth(obj, reference = "pbmcref")
+# # currently, the object has two layers in the RNA assay: counts, and data
+# obj
 ```
 
 The object contains data from nine different batches (stored in the `Method` column in the object metadata), representing seven different technologies. We will aim to integrate the different batches together. In previous versions of Seurat, we would require the data to be represented as nine different Seurat objects. When using Seurat v5 assays, we can instead keep all the data in one object, but simply split the layers.
@@ -65,24 +80,22 @@ After splitting, there are now 18 layers (a `counts` and `data` layer for each b
 
 ```{r splitassay}
 # obj[["RNA"]] <- split(obj[["RNA"]], f = obj$orig.ident)
-obj
+# obj
 obj <- NormalizeData(obj)
 obj <- FindVariableFeatures(obj)
 obj <- ScaleData(obj)
 obj <- RunPCA(obj)
 ```
-```{r vlnplot, fig.width=16,fig.height=8}
-VlnPlot(obj,features = c("nCount_RNA","nFeature_RNA","percent.mt","log10GenesPerUMI"),group.by = "orig.ident", ncol = 4)
-```
-
 We can now visualize the results of a standard analysis without integration. Note that cells are grouping both by cell type and by underlying method. While a UMAP analysis is just a visualization of this, clustering this dataset would return predominantly batch-specific clusters. Especially if previous cell-type annotations were not available, this would make downstream analysis extremely challenging.  
+
 ```{r unintegratedUMAP, fig.height=5, fig.width=14}
 obj <- FindNeighbors(obj, dims=1:30, reduction = 'pca')
 obj <- FindClusters(obj, resolution = 2, cluster.name = "unintegrated_clusters")
 obj <- RunUMAP(obj, dims = 1:30, reduction = 'pca', reduction.name = 'umap.unintegrated')
+obj <- RunTSNE(obj, dims = 1:30, reduction = 'pca', reduction.name = 'tsne.unintegrated')
 # visualize by batch and cell type annotation
 # cell type annotations were previously added by Azimuth
-DimPlot(obj, reduction = 'umap.unintegrated', group.by=c('orig.ident','unintegrated_clusters'))
+# DimPlot(obj, reduction = 'umap.unintegrated', group.by=c('Method','predicted.celltype.l2'))
 ```
 
 ## Perform streamlined (one-line) integrative analysis
@@ -119,7 +132,7 @@ obj <- IntegrateLayers(
 ```{r integratelayersharmony, results='hide'}
 obj <- IntegrateLayers(
   object = obj, method = HarmonyIntegration,
-  orig.reduction = "pca", new.reduction = 'integrated.harmony',
+  orig.reduction = "pca", new.reduction = 'harmony',
   verbose = FALSE)
 ```
 
@@ -130,7 +143,7 @@ obj <- IntegrateLayers(
   verbose = FALSE)
 ```
 
-```{r integratelayersscvi, eval=TRUE, results='hide'}
+```{r integratelayersscvi, eval=FALSE, results='hide'}
 obj <- IntegrateLayers(
   object = obj, method = "scVIIntegration",
   groups = "orig.ident",
@@ -149,30 +162,35 @@ obj <- IntegrateLayers(
 
 For any of the methods, we can now visualize and cluster the datasets. We show this for CCA integration and scVI, but you can do this for any method:
 
-```{r integratedprojections, fig.height=8, fig.width=30}
-all.reductions <- grep("^integrated", Reductions(obj), value = TRUE)
-for (i in all.reductions) {
-  reduction.method <- gsub("^integrated\\.","",i)
-  obj <- FindNeighbors(obj, reduction = i, dims = 1:30)
-  obj <- FindClusters(obj,resolution = 1, cluster.name = paste0(i,'_clusters'))
-  obj <- RunUMAP(obj, reduction = i, dims = 1:30, reduction.name = paste0('umap.',i))
-  obj <- RunTSNE(obj, reduction = i, dims = 1:30, reduction.name = paste0('tsne.',i))
-  p <- DimPlot(obj, reduction = paste0('umap.',i),group.by = c("orig.ident", paste0(i,'_clusters')), combine = FALSE, label.size = 2)
-  print(wrap_plots(p,ncol = 2))
-  p <- DimPlot(obj, reduction = paste0('tsne.',i),group.by = c("orig.ident", paste0(i,'_clusters')), combine = FALSE, label.size = 2)
-  print(wrap_plots(p,ncol = 2))
-}
+```{r integratedprojections, fig.height=16, fig.width=16}
+obj <- FindNeighbors(obj, reduction = 'integrated.cca', dims = 1:30)
+obj <- FindClusters(obj,resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2), cluster.name = paste0('cca_clusters_res_',c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2)))
+obj <- RunUMAP(obj, reduction = "integrated.cca", dims = 1:30, reduction.name = 'umap.cca')
+obj <- RunTSNE(obj, reduction = "integrated.cca", dims = 1:30, reduction.name = 'tsne.cca')
+
+
+obj <- FindNeighbors(obj, reduction = 'integrated.scvi', dims = 1:30)
+obj <- FindClusters(obj,resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2), cluster.name = paste0('scvi_clusters_res_',c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2)))
+obj <- RunUMAP(obj, reduction = "integrated.scvi", dims = 1:30, reduction.name = 'umap.scvi')
+obj <- RunTSNE(obj, reduction = "integrated.scvi", dims = 1:30, reduction.name = 'tsne.scvi')
+
+obj <- FindNeighbors(obj, reduction = 'integrated.rpca', dims = 1:30)
+obj <- FindClusters(obj,resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2), cluster.name = paste0('rpca_clusters_res_',c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2)))
+obj <- RunUMAP(obj, reduction = "integrated.rpca", dims = 1:30, reduction.name = 'umap.rpca')
+obj <- RunTSNE(obj, reduction = "integrated.rpca", dims = 1:30, reduction.name = 'tsne.rpca')
+
+obj <- FindNeighbors(obj, reduction = 'harmony', dims = 1:30)
+obj <- FindClusters(obj,resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2), cluster.name = paste0('harmony_clusters_res_',c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2)))
+obj <- RunUMAP(obj, reduction = "harmony", dims = 1:30, reduction.name = 'umap.harmony')
+obj <- RunTSNE(obj, reduction = "harmony", dims = 1:30, reduction.name = 'tsne.harmony')
+
+obj <- FindNeighbors(obj, reduction = 'integrated.mnn', dims = 1:30)
+obj <- FindClusters(obj,resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2), cluster.name = paste0('mnn_clusters_res_',c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6,1.8,2)))
+obj <- RunUMAP(obj, reduction = "integrated.mnn", dims = 1:30, reduction.name = 'umap.mnn')
+obj <- RunTSNE(obj, reduction = "integrated.mnn", dims = 1:30, reduction.name = 'tsne.mnn')
 ```
 
 We hope that by simplifying the process of performing integrative analysis, users can more carefully evaluate the biological information retained in the integrated dataset. For example, users can compare the expression of biological markers based on different clustering solutions, or visualize one method's clustering solution on different UMAP visualizations.
-
-```{r cellnumbers}
-for (i in all.reductions) {
-  print(paste0(i,"_clusters"))
-  print(table(obj@meta.data$orig.ident, obj@meta.data[,paste0(i,"_clusters")]))
-  print(round(prop.table(table(obj@meta.data$orig.ident, obj@meta.data[,paste0(i,"_clusters")]), margin = 1),digits = 4)*100)
-}
-```
 
 ```{r vlnplots, fig.height=5, fig.width=16, warning=FALSE}
 # p1 <- VlnPlot(
@@ -187,30 +205,13 @@ for (i in all.reductions) {
 # p1 | p2 | p3
 ```
 
-```{r umaps, fig.height=8, fig.width=12}
-for (i in all.reductions) {
-  reduction.method <- gsub("^integrated\\.","",i)
-  all.umaps <- paste0("umap.",all.reductions)
-  dimplot.list <- list()
-  for (j in all.umaps) {
-    dimplot.list[[j]] <- DimPlot(obj, reduction = j, group.by = paste0(i,"_clusters"))
-  }
-  print(wrap_plots(dimplot.list,ncol = 3) & NoLegend())
-}
+```{r umaps, fig.height=5, fig.width=16}
+# obj <- RunUMAP(obj, reduction = "integrated.rpca", dims = 1:30, reduction.name = 'umap.rpca')
+# p4 <- DimPlot(obj, reduction="umap.unintegrated", group.by=c("cca_clusters"))
+# p5 <- DimPlot(obj, reduction="umap.rpca", group.by=c("cca_clusters"))
+# p6 <- DimPlot(obj, reduction="umap.scvi", group.by=c("cca_clusters"))
+# p4 | p5 | p6
 ```
-
-```{r featureplot, fig.height=8, fig.width=12}
-genes <- c("esg","NPF","AstA","AstC","Tk","Dl","CCHa1","CCHa2","Mip","nCount_RNA","nFeature_RNA","percent.mt","log10GenesPerUMI" )
-for (gene in genes) {
-  all.umaps <- paste0("umap.",all.reductions)
-  featureplot.list <- list()
-  for (j in all.umaps) {
-    featureplot.list[[j]] <- FeaturePlot(obj, features = gene, reduction = j)
-  }
-  print(wrap_plots(featureplot.list,ncol = 3) & NoLegend())
-}
-```
-
 
 Once integrative analysis is complete, you can rejoin the layers - which collapses the individual datasets together and recreates the original `counts` and `data` layers. You will need to do this before performing any differential expression analysis. However, you can always resplit the layers in case you would like to reperform integrative analysis.
 
@@ -224,7 +225,7 @@ Lastly, users can also perform integration using sctransform-normalized data (se
 ```{r, include=FALSE}
 # obj <- LoadData("pbmcsca")
 # obj <- subset(obj, nFeature_RNA > 1000)
-# obj[["RNA"]] <- split(obj[["RNA"]], f = obj$orig.ident)
+# obj[["RNA"]] <- split(obj[["RNA"]], f = obj$Method)
 ```
 
 ```{r sct}
@@ -241,7 +242,7 @@ Lastly, users can also perform integration using sctransform-normalized data (se
 ```
 
 ```{r}
-saveRDS(obj,file = "merged.rds")
+saveRDS(obj, file = "merged.rds")
 ```
 
 <details>
