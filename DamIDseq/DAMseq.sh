@@ -17,30 +17,45 @@ trap 'abort' 0
 
 set -e
 
-###############################################
-## It assumes cutadapt, bowtie2 bedtools and samtools is 
-## available.
-## We have tested this script with 
-## cutadapt 2.5, bowtie2 2.2.5 and samtools v1.9 
-## on an Centos system.
-###############################################
+####################################################################
+## It assumes cutadapt, bowtie2 bedtools and samtools is available.
+## We have tested this script with cutadapt 2.5, bowtie2 2.2.5 and 
+## samtools v1.9 on an Centos 7 system.
+####################################################################
 
 ##  输出结果
-# 1. bam 文件及mapping logs文档 - 2_mapping_bowtie2
-# 2. bam correlation plots/data  - 2_mapping_bowtie2
-# 3. duplicated reads 统计信息 （当-r <remove duplicated reads> 为 true） - 2_mapping_bowtie2/rmDup_logs
-# 4. RSeQC reports 2_mapping_bowtie2/RSeQC_report
-# 5. bw 文件 - 3_bw_bamCoverage
-# 6. 综合报告 - 4_QC_multiQC/multiqc_report.html
+# 1. bam 文件及mapping logs文档目录： 2_mapping_bowtie2
+# 2. bam correlation plots/data目录： 2_mapping_bowtie2
+# 3. duplicated reads 统计信息 （当-r <remove duplicated reads> 为 true）目录： 2_mapping_bowtie2/rmDup_logs目录
+# 4. RSeQC reports目录： 2_mapping_bowtie2/RSeQC_report
+# 5. bw 文件目录：3_bw_bamCoverage
+# 6. 综合报告目录：4_QC_multiQC/multiqc_report.html
 
 
 ## 经验总结
 # 1. reads duplication 水平很高98%左右，peak很高，几乎无背景，可能是由于PCR循环数目太高导致的，本质是富集的DNA太少。
 # 2. T7 外切酶和内切酶（内切酶Alw1）得到的reads起始位置不一样，内切酶不含GATC序列，并且在固定位置（GATC+5base）开始。
-# 3. peak两端reads很多，中间少，应该是建库前没做超声打断，或者打断不充分（貌似DAMIDseq抓到的DNA目标片段就是很短）。强烈建议要做打断
+# 3. peak两端reads很多，中间少，应该是建库前没做超声打断，或者打断不充分（貌似DAMIDseq抓到的DNA目标片段就是很短）。强烈建议要做打断。
 # 4. 正常情况，不需要不去除duplicated reads，也不需要延伸单端reads（得到的peaks更sharp，不会两边高中间低），如果未打断DNA，建议延伸单端reads。
+# 5. PCR 引物序列为： GGTCGCGGCCGAGGATC， 可检查引物是否切除干净。
+# 参考： 
+# zcat SRR8955177_S1_L001_R1_001.fastq.gz | head -n 40000 | grep "GGTCGCGGCCGAGGATC" | wc -l # 正向
+# zcat SRR8955177_S1_L001_R1_001.fastq.gz | head -n 40000 | grep "GATCCTCGGCCGCGACC" | wc -l # 反向
 
 
+# 环境配置
+# conda activate /home/xilab/software/miniconda-envs/bioinfo
+# conda install bioconda::fastqc
+# conda install bioconda::cutadapt
+# conda install bioconda::bowtie2
+# conda install bioconda::samtools
+# conda install bioconda::deeptools
+# conda install bioconda::rseqc
+# conda install bioconda::picard
+# conda install bioconda::multiqc
+# conda install bioconda::homer # for downstream analysis
+# perl /home/xilab/software/miniconda-envs/bioinfo/share/homer/.//configureHomer.pl -list
+# perl /home/xilab/software/miniconda-envs/bioinfo/share/homer/.//configureHomer.pl -install dm6
 
 
 # change default parameters here!
@@ -54,7 +69,7 @@ paired=false
 test=false
 rm_dup=false
 # 注意，默认SE reads会被延伸至300bp，这可能导致peaks跨越GATC位点
-extend_SEReads=false 
+extend_SEReads=false
 
 # Augument Parsing
 print_usage_and_exit(){
