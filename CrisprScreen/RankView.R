@@ -1,12 +1,12 @@
 library(MAGeCKFlute)
 library(ggplot2)
 ####################### plot the sgRNAs ##################
-file2 = "../test/day14-vs-day0.sgrna_summary.txt"
+file2 = "test/day28samR4-vs-day0.sgrna_summary.txt"
 sdata = ReadsgRRA(file2)
 sdata
 
 # remove "RPL35" and "DTWD1"
-sdata <- sdata[!sdata$Gene %in% c("RPL35","DTWD1"),]
+# sdata <- sdata[!sdata$Gene %in% c("RPL35","DTWD1"),]
 
 
 # edit(sgRankView)
@@ -43,6 +43,24 @@ if (bottom > 0) {
   gene = c(gene, tmp$Gene[1:min(bottom, nrow(tmp))])
 }
 gene = unique(gene)
+
+gene_df <- read.delim("./day28-vs-day0-rep1-RRA-WRX-Company.txt",stringsAsFactors = FALSE)
+head(gene_df)
+gene <- rev(gene_df$id[1:10])
+# gene <- rev(c("SPDL1",          
+#           "RPL38",
+#           "CHEK1",
+#           "SLFN5",
+#           "HBB",
+#           "FOSL2",
+#           "CCDC34",
+#           "ARMCX2",
+#           "SPON2",
+#           "AURKA"
+# ))
+
+
+
 
 
 subdf = df[df$Gene %in% gene, ]
@@ -113,10 +131,10 @@ p = p + theme(panel.grid.major = element_blank(), panel.grid.minor = element_bla
 p1 <- p
 
 ####################### plot the ranked genes ##########
-file1 = "../test/day14-vs-day0.gene_summary.txt"
-gdata = ReadRRA(file1)
+file1 = "day28-vs-day0-rep1-RRA-WRX-Company.txt"
+gdata = ReadRRA(file1, score = "rra")
 head(gdata)
-gdata <- gdata[!gdata$id %in% c("RPL35","DTWD1"),]
+# gdata <- gdata[!gdata$id %in% c("RPL35","DTWD1"),]
 
 
 gdata$Rank = rank(gdata$Score)

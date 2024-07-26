@@ -103,7 +103,7 @@ countdata <- countdata[,c("N1099G.Rep3","N1099G.Rep2","N1099G.Rep1","HNF4.OE.Rep
 colnames(countdata)
 metadata <- data.frame(row.names = colnames(countdata),
                        Group = factor(c(rep(control,3),rep(case,3)),levels = c(control,case)), # control should be in front
-                       Replicate = c(paste("Rep",3:1,sep = ""),paste("Rep",3:1,sep="")),
+                       Replicate = c(paste("Rep",1:3,sep = ""),paste("Rep",1:3,sep="")),
                        sampleid = colnames(countdata))
 metadata
 ```
@@ -453,7 +453,7 @@ if ( !dir.exists("GSEA") ) {
 
 # export rnk list using ENSEMBL gene ids
 geneList = results[,"log2FoldChange"]
-names(geneList) <- names(results)
+names(geneList) <- rownames(results)
 geneList = sort(geneList, decreasing = TRUE)
 write.table(geneList,file = "./GSEA/RNAseq-GeneNameENSEMBL-RankedBy-log2FoldChange.rnk",quote = FALSE,col.names = FALSE,sep = "\t")
 ```
@@ -605,10 +605,11 @@ if (FALSE) {
   #hist(odam$log2FoldChange,breaks = 400,xlim = c(-15,5))
   #hist(odam$score,breaks = 100)
   
-  write.table(t(c("oDAM-Pros-peaks", # make sure using same type gene ids(ENSEMBL or ENTREZID) !
-                  unique(odam$Gene.Name[odam$Gene.Name%in% names(geneList)]))),
+  write.table(t(c("oDAM-Pros-peaks", # pathway name
+                  "peaks from oDAM" # description
+                  unique(odam$Gene.Name[odam$Gene.Name%in% names(geneList)]))), # all related genes
                   file = "oDam-pros-log2FoldChange-morethan1.gmt",
-                  col.names = FALSE,quote = FALSE,sep = "\t")
+                  col.names = FALSE,quote = FALSE,sep = "\t",row.names = FALSE)
 }
 ```
 
