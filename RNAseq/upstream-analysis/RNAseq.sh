@@ -2,7 +2,7 @@
 # Using getopt
 
 source ~/.bashrc
-conda activate py37
+conda activate /home/xilab/software/miniconda-envs/bioinfo
 
 abort()
 {
@@ -38,7 +38,7 @@ set -e
 #
 # 之后考虑搭建balgown分析流程！
 #
-# Softwares needed:
+# Softwares/Functions needed:
 # 1. FASTQ QC: fastqc;
 # 2. Trim Adapter: Trimgalore;
 # 3. Align reads: STAR; Hisat2; Samtools;
@@ -50,16 +50,40 @@ set -e
 
 # install softwares
 # conda activate py37
-# conda install -c bioconda fastqc
-# conda install -c bioconda trim-galore
-# conda install -c bioconda star
-# conda install -c bioconda samtools
-# conda install -c bioconda deeptools
-# conda install -c bioconda rseqc
-# conda install -c bioconda subread
-# conda install -c bioconda gffcompare
-# conda install -c bioconda stringtie
-# conda install -c bioconda multiqc
+# conda install bioconda::fastqc
+# conda install bioconda::trim-galore
+# conda install bioconda::star
+# conda install bioconda::hisat2
+# conda install bioconda::samtools
+# conda install bioconda::deeptools
+# conda install bioconda::rseqc
+# conda install bioconda::qualimap
+# conda install bioconda::subread
+# conda install bioconda::gffcompare
+# conda install bioconda::stringtie==2.2.1
+# stringtie==2.2.1 because of https://github.com/gpertea/stringtie/issues/238 
+# conda install bioconda::rsem
+# conda install bioconda::multiqc
+
+# check package avaliable and list the version
+fastqc --version
+trim_galore --version
+STAR --version
+hisat2 --version
+samtools --version
+deeptools --version
+# rseqc version
+bam_stat.py --version
+qualimap --version
+# subread version
+subread-align -v
+gffcompare --version
+stringtie --version
+# rsem version
+rsem-calculate-expression --version
+multiqc --version
+
+
 ######################################################################################################################
 # fastq dir should be a link!
 fastq=fastq

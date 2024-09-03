@@ -11,32 +11,34 @@
 # 1.1 标准名称
 # 参考illumina测序仪下机FASTQ命名: https://support.illumina.com/help/BaseSpace_OLH_009008/Content/Source/Informatics/BS/NamingConvention_FASTQ-files-swBS.htm
 # 例： SampleName_S1_L001_R1_001.fastq.gz
-# SampleName — The sample name provided in the sample sheet. If a sample name is not provided, the file name includes the sample ID, which is a required field in the sample sheet and must be unique.
-# S1 — The sample number based on the order that samples are listed in the sample sheet starting with 1. In this example, S1 indicates that this sample is the first sample listed in the sample sheet.
+# 特别支持： SampleName_S1_L006_I1_002.fastq.gz
+# SampleName  The sample name provided in the sample sheet. If a sample name is not provided, the file name includes the sample ID, which is a required field in the sample sheet and must be unique.
+# S1  The sample number based on the order that samples are listed in the sample sheet starting with 1. In this example, S1 indicates that this sample is the first sample listed in the sample sheet.
 # NOTE： Reads that cannot be assigned to any sample are written to a FASTQ file for sample number 0, and excluded from downstream analysis.
-# L001 — The lane number.
-# R1 — The read. In this example, R1 means Read 1. For a paired-end run, there is at least one file with R2 in the file name for Read 2. When generated, index reads are I1 or I2.
-# 001 — The last segment is always 001.
+#	L001  The lane number.
+# R1  The read. In this example, R1 means Read 1. For a paired-end run, there is at least one file with R2 in the file name for Read 2. When generated, index reads are I1 or I2.
+# 001  The last segment is always 001.
 # 1.2 支持的转换
 # 按以下顺序逐步替换
-# 详见后面的核心代码
 # SampleName_S1_L001_R1_001.fq.gz # fq to fastq
 # SampleName.1.fastq.gz and SampleName_1.fastq.gz and SampleName_1_fastq.gz # [._]1[._]fastq.gz to _R1.fastq.gz
 # SampleName_S1_L001_R1.fastq.gz and  SampleName_S1_L001.R1.fastq.gz # [_.]R1[_.]fastq.gz to _R1_001.fastq.gz
 # SampleName_R1_001.fastq.gz # _R1_001.fastq.gz to _S1_L001_R1_001.fastq.gz
 
-# usage: ./prepare-fastqs.r -h
-#        ./prepare-fastqs.r
-#        ./prepare-fastqs.r -r
+
+# usage: ./prepare-fastqs.r
+#        ./prepare-fastqs.r -p './' -v
+#        ./prepare-fastqs.r --path './' -r
 
 
 suppressPackageStartupMessages(require(optparse)) # don't say "Loading required package: optparse"
 
 option_list = list(
   make_option(c("-p", "--path"), action="store", default='./', type='character',
-              help="请输入您要整理的数据目录！[默认为 ./]"),
+              help="请输入您要整理的数据目录！"),
   make_option(c("-e", "--escaped-dirs"), action="store", default='scRNAseq,SpatialRNAseq', type='character',
-              help="需要跳过的子数据目录，此路径下的fastq文件名将不会被修改！ [默认为 scRNAseq,SpatialRNAseq]"),
+              help="需要跳过的子数据目录，此路径下的fastq文件名将不会被修改！ [Default scRNAseq,SpatialRNAseq]。注意不适用于非标准目录[比如Data_From_Paper目录]!\n
+              标准目录格式为：/data1/data_backup/CheMinhua/RNAseq/2023.08.07_RNAseq_PE_Fly-Gut-esg-Brat-IR-And-OE/BratIR-Rep1/Brat-IR1_S1_L001_R1_001.fastq.gz"),
   make_option(c("-r", "--run"), action="store_true", default=FALSE,type='logical',
               help="执行重命名"),
   make_option(c("-v", "--verbose"), action="store_true", default=FALSE,type='logical',
@@ -59,13 +61,13 @@ if (opt$path == "./") {
   }
 }
 # 列出所有fastq文件
-fastq.files <-  list.files(path = opt$path, all.files = FALSE, recursive = TRUE, pattern = "(*fq.gz)|(*fastq.gz)")
+fastq.files <-  list.files(path = opt$path, all.files = FALSE, recursive = TRUE, pattern = "(*fq.gz$)|(*fastq.gz$)")
 if (length(fastq.files) == 0) {
   stop("检测消息：错误！未发现以fq.gz或fastq.gz结尾的文件！")
 }
 cat(paste0("检测消息：共发现",length(fastq.files),"个样本以fq.gz或fastq.gz结尾！\n"), file=stderr()) # print error messages to stderr 
 # 解析fastq文件名
-format.standard <- ".*_S\\d+_L00[1-8]_R[1-2]_001\\.fastq\\.gz"
+format.standard <- ".*_S\\d+_L00[1-8]_(I1|R1|R2)_00[1-8]\\.fastq\\.gz" # 标准格式
 res <- data.frame(fastq = basename(fastq.files), path = dirname(fastq.files),IsStandard = "",NewName = "",stringsAsFactors = FALSE)
 # 去除指定目录下的文件
 dirs.escaped <- trimws(unlist(strsplit(opt$'escaped-dirs',split = ",")))
@@ -84,7 +86,7 @@ if (length(category.dirs.escaped) != 0) {
 res$IsStandard <- grepl(pattern = format.standard, res$fastq)
 cat(paste0("检测消息：共发现",sum(!res$IsStandard),"个非标准格式的fastq样本名！\n"), file=stderr()) # print error messages to stderr
 if (opt$verbose) { # 输出所有非标准格式的样本
-  for (i in fastq.files[!res$IsStandard]) {
+  for (i in paste0(res$path, "/", res$fastq)[!res$IsStandard]) {
     cat(paste0(">>> ", i, "\n"), file=stderr()) # print error messages to stderr
   }
 }
@@ -93,15 +95,15 @@ trans_name <- function(astring, format = format.standard){
   tmp <- gsub("fq\\.gz$","fastq.gz", astring)  # fq to fastq
   tmp <- gsub("\\.clean\\.fastq\\.gz$",".fastq.gz", tmp)  # .clean.fastq.gz to .fastq.gz
   if (!grepl(pattern = format, tmp)) {
-    tmp <- gsub("[\\._]([12])[\\._]fastq.gz$","_R\\1.fastq.gz",tmp) # [._]1[._]fastq.gz to _R1.fastq.gz
+    tmp <- gsub("[\\._]([12])[\\._]fastq.gz$","_R\\1.fastq.gz",tmp) # [._]1[._]fastq.gz to _R1.fastq.gz And [._]2[._]fastq.gz to _R2.fastq.gz
     if (!grepl(pattern = format, tmp)) {
-      tmp <- gsub("[\\._](R[12])[\\._]fastq.gz$","_\\1_001.fastq.gz",tmp) # [_.]R1[_.]fastq.gz to _R1_001.fastq.gz
+      tmp <- gsub("[\\._](I1|R1|R2)[\\._]fastq.gz$","_\\1_001.fastq.gz",tmp) # [_.]R1[_.]fastq.gz to _R1_001.fastq.gz And [_.]R2[_.]fastq.gz to _R2_001.fastq.gz And [_.]I1[_.]fastq.gz to _I1_001.fastq.gz
       if (!grepl(pattern = format, tmp)) {
-        tmp <- gsub("_(L00[1-8])_(R[12])_001.fastq.gz$","_S1_\\1_\\2_001.fastq.gz",tmp) # _L001_R1_001.fastq.gz to _S1_L001_R1_001.fastq.gz
+        tmp <- gsub("_(L00[1-8])_(I1|R1|R2)_(00[1-8]).fastq.gz$","_S1_\\1_\\2_\\3.fastq.gz",tmp) # _L001_R1_001.fastq.gz to _S1_L001_R1_001.fastq.gz And _L001_R1_002.fastq.gz to _S1_L001_R1_002.fastq.gz etc.
         if (!grepl(pattern = format, tmp)) {
-          tmp <- gsub("_(S[1-96])_(R[12])_001.fastq.gz$","_\\1_L001_\\2_001.fastq.gz",tmp) # _S1_R1_001.fastq.gz to _S1_L001_R1_001.fastq.gz
+          tmp <- gsub("_(S[1-96])_([I1|R1|R2)_(00[1-8]).fastq.gz$","_\\1_L001_\\2_\\3.fastq.gz",tmp) # _S1_R1_001.fastq.gz to _S1_L001_R1_001.fastq.gz etc.
           if (!grepl(pattern = format, tmp)) {
-            tmp <- gsub("_(R[12])_001.fastq.gz$","_S1_L001_\\1_001.fastq.gz",tmp) # _R1_001.fastq.gz to _S1_L001_R1_001.fastq.gz
+            tmp <- gsub("_(I1|R1|R2)_(00[1-8]).fastq.gz$","_S1_L001_\\1_\\2.fastq.gz",tmp) # _R1_001.fastq.gz to _S1_L001_R1_001.fastq.gz etc.
             if (!grepl(pattern = format, tmp)) {
               tmp <- gsub("\\.fastq.gz$","_S1_L001_R1_001.fastq.gz",tmp) # .fastq.gz to _S1_L001_R1_001.fastq.gz
             }
