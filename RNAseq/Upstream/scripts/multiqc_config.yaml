@@ -1,0 +1,38 @@
+extra_fn_clean_exts:
+  - .gz
+  - .fastq
+  - .fq
+  - .bam
+  - .sam
+  - .sra
+  - .accepted_hits
+  - _Hisat2
+  - _STAR
+  - _tophat
+  - _trimming_report.txt
+  - .cutadapt_R1.fastq
+  - .cutadapt_R2.fastq
+  - _RSeQC.reads_distribution
+  - _RSeQC.junction_saturation
+  - _RSeQC.junction_annotation
+  - _star_aligned
+  - .RSeQC
+  - _val_1
+  - _val_2
+  - _Hisat2_RSeQC
+  - _fastqc
+  - _R1
+  - _R2
+  - .rmChrM
+  - .rmChrM.rmDup.rmMulti.rmBlacklist
+  - type: remove
+    pattern: ".sorted"
+  - type: regex
+    pattern: '^Sample_\d+'
+  - type: regex_keep
+    pattern: "[A-Z]{3}[1-9]{4}[A,B][1-9]"
+
+use_filename_as_sample_name:
+  - cutadapt
+table_columns_visible:
+  QualiMap: False

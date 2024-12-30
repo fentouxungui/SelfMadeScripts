@@ -35,8 +35,8 @@ set -e
 ## 经验总结
 # 1. reads duplication 水平很高98%左右，peak很高，几乎无背景，可能是由于PCR循环数目太高导致的，本质是富集的DNA太少。
 # 2. T7 外切酶和内切酶（内切酶Alw1）得到的reads起始位置不一样，内切酶不含GATC序列，并且在固定位置（GATC+5base）开始。
-# 3. peak两端reads很多，中间少，应该是建库前没做超声打断，或者打断不充分（貌似DAMIDseq抓到的DNA目标片段就是很短）。强烈建议要做打断。
-# 4. 正常情况，不需要不去除duplicated reads，也不需要延伸单端reads（得到的peaks更sharp，不会两边高中间低），如果未打断DNA，建议延伸单端reads。
+# 3. [DamIDseq] peak两端reads很多，中间少，应该是建库前没做超声打断，或者打断不充分（貌似DAMIDseq抓到的DNA目标片段就是很短）。强烈建议要做打断。
+# 4. [DamIDseq] 正常情况，不需要不去除duplicated reads，也不需要延伸单端reads（得到的peaks更sharp，不会两边高中间低），如果未打断DNA，建议延伸单端reads。
 # 5. PCR 引物序列为： GGTCGCGGCCGAGGATC， 可检查引物是否切除干净。
 # 参考： 
 # zcat SRR8955177_S1_L001_R1_001.fastq.gz | head -n 40000 | grep "GGTCGCGGCCGAGGATC" | wc -l # 正向
@@ -59,7 +59,7 @@ set -e
 
 
 # change default parameters here!
-bowtie2_index=/home/xilab/reference/bowtie2_index/UCSC-dm6/ucsc-dm6
+bowtie2_index=/home/xilab/reference/bowtie2_index/drosophlia/ucsc-dm6/dm6
 genes_bed=/home/xilab/reference/Genome/Drosophlia/UCSC/dm6/dm6.refGene.bed
 threads=24
 output=results
@@ -531,7 +531,7 @@ echo ">>>>>>>>>> Step-7: Generating analysis report with multiQC <<<<<<<<<<<"
 cd ${output_path} && mkdir -p ./4_QC_multiQC && cd ./4_QC_multiQC && multiqc_path=`pwd`
 cd ${output_path}
 
-multiqc -f ${output_path} --outdir ${multiqc_path} -c /home/xilab/reference/Scripts/config_example.yaml
+multiqc -f ${output_path} --outdir ${multiqc_path} -c /home/xilab/reference/Scripts/multiqc_config.yaml
 
 echo ">>>>>>>>>> Step-8: Delete unused files <<<<<<<<<<<"
 if [[ "$test" = true ]]

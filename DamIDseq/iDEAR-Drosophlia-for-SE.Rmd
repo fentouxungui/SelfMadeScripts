@@ -51,12 +51,15 @@ First of all, you need to define the information of the samples to be analysed a
 
 
 ```{r}
-bam.path <- "../2_mapping_bowtie2"
+bam.path <- "bam-files"
 all.bams <- list.files(bam.path, pattern = "sorted.bam$",full.names = TRUE)
 all.bams
 
-Control <- "control-esg"
-Case <- "case-chinmo"
+all.bams <- all.bams[c(1,3,4,7,8,9)]
+all.bams
+
+Control <- "control"
+Case <- "CDS2"
 
 samples <- data.frame(name = factor(c(rep(Case,3),rep(Control,3)),levels = c(Case,Control)),
                       replicate = c(1:3,1:3),
@@ -64,6 +67,9 @@ samples <- data.frame(name = factor(c(rep(Case,3),rep(Control,3)),levels = c(Cas
 
 samples
 ```
+
+
+
 
 
 In order to determine which factor is used in the numerator and denominator for the DE analysis and interpretation of the log2FC there are two possibilities: if the first column in the samples variable, identifying the sample name, is of factor type the order of the levels is taken into account, i.e. first level will be the numerator and the second level the denominator. In other case, the first listed sample will be in the numerator and the second in the denominator. In the example above the sample name is defined as a factor and the order, first "TF", means that the "TF" sample is considered as positive and "GFP" as control.
@@ -171,7 +177,7 @@ iDEAR.data$PeakID <- paste0(iDEAR.data$seqnames,"-",rownames(iDEAR.data),sep="")
 
 head(results_for_anno)
 write.table(results_for_anno,file = "df.peaks.txt",row.names = FALSE,quote = FALSE,sep = "\t")
-system("annotatePeaks.pl df.peaks.txt dm6 > df.peaks.annotated.txt -gtf /data0/reference/UCSC/dm6/Annotation/Archives/archive-2015-07-24-09-25-49/Genes/genes.gtf")
+system("sh run_homer.sh")
 ```
 
 ## 合并iDEAR结果和HOMER注释结果

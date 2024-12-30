@@ -1,6 +1,7 @@
 #!/bin/bash
 # Using getopt
 
+# 设定conda环境
 source ~/.bashrc
 conda activate /home/xilab/software/miniconda-envs/bioinfo
 
@@ -19,36 +20,30 @@ trap 'abort' 0
 
 set -e
 
-# 注意
-# 1. 无论双端单端，reads长度最好大于50bp，因为rsem-calculate-expression --seed-length 默认25bp，短于25bp的会警告。
-# 2. 使用流程时，注意fastq文件大小不要大于2.8G！详见Debug信息第一条。
-# 3. Hisat2 比对很慢很慢，可能是有大量reads比对到多个位置，估计是有大量核糖体mRNA。
+# 检查脚本完整性
+## 检查是否存在scripts目录
+if ! [ -d scripts ]; then
+    echo 'scripts directory not found...'
+    exit 1
+fi
 
-######################################################################################################################
-# Analysis Roadmap
-# 1. STAR + FeatureCounts (counts matrix - Gene level)     > DESeq2/edgeR/limma（counts）
-# 2. STAR + RSEM (counts, TPM, FPKM matrix - Gene level)   > DESeq2/edgeR/limma（counts）
-#                                                                                |-  Known             > DESeq2/edgeR/limma（counts）
-# 3. Hisat2 + StringTie (counts - Gene/Transcript）, TPM, FPKM matrix - Gene)   -| 
-#                                                                                |-  Known and de novo > DESeq2/edgeR/limma （counts）or balgown
-# 注： 1. ./results/6_Counts_StringTie/Make-Reference/gffcmp.annotated.gtf 为从头方式得到的全部转录本和外显子
-# 2. Known and de novo 的结果可考虑导入到 IsoformSwitchAnalyzeR R包进行分析。未尝试！ 不同处理下，isform的切换。
-# 3. Known and de novo 的结果包含以MSTRG为前缀的新基因/转录本，Known的没有，这一点分析时需要注意，对于Known and de novo 的结果可以用IsoformSwitchAnalyzeR导入，
-#   参考（https://www.biostars.org/p/282817/），说是可以解决50%的MSTRG基因的注释，然后再导出count matrix，用于DESeq2/edgeR/limma分析。
-#
-# 之后考虑搭建balgown分析流程！
-#
-# Softwares/Functions needed:
-# 1. FASTQ QC: fastqc;
-# 2. Trim Adapter: Trimgalore;
-# 3. Align reads: STAR; Hisat2; Samtools;
-# 4. BW files: deepTools: bamCoverage, plotCorrelation, multiBamSummary; 
-# 5. RNAseq QC: RSeQC: bam_stat.py, read_distribution.py, geneBody_coverage.py(Not Used);
-# 6. Summarizing Gene/Transcrpt/Exon Counts: Subread: featureCounts; GffCompare + StringTie;
-# 7. Analysis Report: multiqc
+if ! [ -f scripts/merge-RSEM-results.R ];then
+    echo 'scripts - merge-RSEM-results.R not found...'
+    exit 1
+fi
 
+if ! [ -f scripts/merge-stringtie-results.R ];then
+    echo 'scripts - merge-stringtie-results.R not found...'
+    exit 1
+fi
 
-# install softwares
+if ! [ -f scripts/multiqc_config.yaml ];then
+    echo 'scripts - multiqc_config.yaml not found...'
+    exit 1
+fi
+
+# 检查软件是否安装完毕
+# to install softwares
 # conda activate py37
 # conda install bioconda::fastqc
 # conda install bioconda::trim-galore
@@ -66,22 +61,32 @@ set -e
 # conda install bioconda::multiqc
 
 # check package avaliable and list the version
-fastqc --version
-trim_galore --version
-STAR --version
-hisat2 --version
-samtools --version
-deeptools --version
-# rseqc version
-bam_stat.py --version
-qualimap --version
-# subread version
-subread-align -v
-gffcompare --version
-stringtie --version
-# rsem version
-rsem-calculate-expression --version
-multiqc --version
+# fastqc --version
+# trim_galore --version
+# STAR --version
+# hisat2 --version
+# samtools --version
+# deeptools --version
+# # rseqc version
+# bam_stat.py --version
+# # qualimap --version # not run in script, will cause an error
+# which qualimap
+# # subread version
+# #subread-align -v
+# which subread-align
+# #gffcompare --version
+# which gffcompare
+# stringtie --version
+# # rsem version
+# rsem-calculate-expression --version
+# multiqc --version
+
+# check package version by conda list
+touch softwares.codes.log
+# 输出时间
+echo '>>>>>>>>>> ' `date +'%Y-%m-%d %H:%M:%S'` >>  softwares.codes.log
+echo '# softwares:' >>  softwares.codes.log
+conda list | grep '^gffcompare\|^fastqc\|^trim-galore\|^star\|^hisat2\|^samtools\|^deeptools\|^rseqc\|^qualimap\|^subread\|^gffcompare\|^stringtie\|^rsem\|^multiqc' >> softwares.codes.log
 
 
 ######################################################################################################################
@@ -96,129 +101,12 @@ star_index=/home/xilab/reference/STAR_index/Drosophlia/dm6-UCSC/STARindex_100bp
 genes_bed=/home/xilab/reference/Genome/Drosophlia/UCSC/dm6/dm6.refGene.bed
 genes_gtf=/home/xilab/reference/Genome/Drosophlia/UCSC/dm6/dm6.refGene.gtf
 rsem_index=/home/xilab/reference/RSEM_index/dm6-UCSC/dm6-UCSC
-merge_stringtie_results_code=/data0/reference/Scripts/RNAseq/merge-stringtie-results.R
-merge_RSEM_results_code=/data0/reference/Scripts/RNAseq/merge-RSEM-results.R
+merge_stringtie_results_code=`pwd`/scripts/merge-stringtie-results.R
+merge_RSEM_results_code=`pwd`/scripts/merge-RSEM-results.R
+multiqc_config_path=`pwd`/scripts/multiqc_config.yaml
 
 # test模式，也可以帮助检查是否有接头序列、引物序列啥的
 test=false
-
-############################### 果蝇案例
-################## UCSC - dm6
-# 1.1 hisat2_index 可以从hisat2官网下载 http://daehwankimlab.github.io/hisat2/download/
-# 构建 Hisat2 index: dm6 genome_tran(hisat2 官网未提供)
-# cp /home/xilab/reference/Genome/Drosophlia/UCSC/dm6/dm6.fa ./genome.fa
-# cp /home/xilab/reference/Genome/Drosophlia/UCSC/dm6/dm6.refGene.gtf  ./genome.gtf
-# hisat2_extract_splice_sites.py genome.gtf > genome.ss
-# hisat2_extract_exons.py genome.gtf > genome.exon
-# hisat2-build -p 32 --exon genome.exon --ss genome.ss genome.fa genome_tran
-#
-# 1.2 构建STAR index
-# STAR \
-# --runThreadN 24 \
-# --runMode genomeGenerate \
-# --genomeDir STARindex_100bp \
-# --genomeFastaFiles /home/xilab/reference/Genome/Drosophlia/UCSC/dm6/dm6.fa \
-# --sjdbGTFfile /home/xilab/reference/Genome/Drosophlia/UCSC/dm6/dm6.refGene.gtf \
-# --sjdbOverhang 100 \
-# --genomeSAindexNbases 12
-# genomeSAindexNbases 12 为STAR推荐的针对于果蝇基因组大小的参数
-# sjdbOverhang: 测序的reads长度-1， 默认是100bp，貌似默认的这个效果也不错！
-#
-# 1.3 构建RSEM index
-# rsem-prepare-reference \
-# --gtf ./dm6.refGene.gtf \
-# ./dm6.fa \
-# dm6-UCSC -p 24
-
-
-############################### 小鼠案例
-############# GENCODE - GRCm39 vM31
-# 1.1 hisat2_index 可以从hisat2官网下载，Hisat2官网未提供GRCm39(mm39)的index
-# 构建Hisat2 index
-# 参考： http://daehwankimlab.github.io/hisat2/howto/#building-indexes
-# cp /home/xilab/reference/Genome/Mouse/GENCODE/GRCm39-vM31/GRCm39.genome.fa ./genome.fa
-# cp /home/xilab/reference/Genome/Mouse/GENCODE/GRCm39-vM31/gencode.vM31.primary_assembly.annotation.gtf  ./genome.gtf
-# hisat2_extract_splice_sites.py genome.gtf > genome.ss
-# hisat2_extract_exons.py genome.gtf > genome.exon
-# hisat2-build -p 32 --exon genome.exon --ss genome.ss genome.fa genome_tran
-#
-# 1.2 构建STAR index
-# ln -s /home/xilab/reference/Genome/Mouse/GENCODE/GRCm39-vM31/gencode.vM31.primary_assembly.annotation.gtf 
-# ln -s /home/xilab/reference/Genome/Mouse/GENCODE/GRCm39-vM31/GRCm39.primary_assembly.genome.fa ./
-# STAR \
-# --runThreadN 24 \
-# --runMode genomeGenerate \
-# --genomeDir STARindex_100bp \
-# --genomeFastaFiles ./GRCm39.primary_assembly.genome.fa \
-# --sjdbGTFfile ./gencode.vM31.primary_assembly.annotation.gtf \
-# --sjdbOverhang 100
-# sjdbOverhang: 测序的reads长度-1， 默认是100bp，貌似默认的这个效果也不错！
-#
-# 1.3 构建RSEM index
-# rsem-prepare-reference \
-# --gtf /home/xilab/reference/Genome/Mouse/GENCODE/GRCm39-vM31/gencode.vM31.primary_assembly.annotation.gtf  \
-# /home/xilab/reference/Genome/Mouse/GENCODE/GRCm39-vM31/GRCm39.primary_assembly.genome.fa \
-#  Genecode-GRCm39-vM31 -p 24
-#
-############################### 人案例
-############### GENCODE - GRCh38.p13.release42 Primary
-# 1.1 hisat2_index 可以从hisat2官网下载
-# http://daehwankimlab.github.io/hisat2/download/
-# 1.2 RSEM indx
-# rsem-prepare-reference \
-# --gtf /data0/reference/Genome/Human/GENCODE/GRCh38.p13.release42/gencode.v42.primary_assembly.annotation.gtf \
-# /data0/reference/Genome/Human/GENCODE/GRCh38.p13.release42/GRCh38.primary_assembly.genome.fa \
-#  GENCODE-GRCh38-p13-release42-Primary -p 24
-# 1.3 STAR index
-# path：/data0/reference/Genome/Human/GENCODE/GRCh38.p13.release42
-# cd /data0/reference/STAR_index/Human/GENCODE-GRCh38-p13-release42-primary
-# ln -s /data0/reference/Genome/Human/GENCODE/GRCh38.p13.release42/gencode.v42.primary_assembly.annotation.gtf ./
-# ln -s /data0/reference/Genome/Human/GENCODE/GRCh38.p13.release42/GRCh38.primary_assembly.genome.fa ./
-# STAR \
-# --runThreadN 24 \
-# --runMode genomeGenerate \
-# --genomeDir STARindex_100bp \
-# --genomeFastaFiles ./GRCh38.primary_assembly.genome.fa \
-# --sjdbGTFfile ./gencode.v42.primary_assembly.annotation.gtf \
-# --sjdbOverhang 100
-# sjdbOverhang: 测序的reads长度-1， 默认是100bp，貌似默认的这个效果也不错！
-################# UCSC - T2T-CHM13-v2.0-hs1
-# 2.1 Hisat2 index
-# cp /home/xilab/reference/Genome/Human/UCSC/T2T-CHM13-v2.0-hs1/hs1.fa ./genome.fa
-# cp /home/xilab/reference/Genome/Human/UCSC/T2T-CHM13-v2.0-hs1/catLiftOffGenesV1.gtf  ./genome.gtf
-# hisat2_extract_splice_sites.py genome.gtf > genome.ss
-# hisat2_extract_exons.py genome.gtf > genome.exon
-# hisat2-build -p 32 --exon genome.exon --ss genome.ss genome.fa genome_tran
-#
-# 2.2 RSEM indx
-# rsem-prepare-reference \
-# --gtf /home/xilab/reference/Genome/Human/UCSC/T2T-CHM13-v2.0-hs1/catLiftOffGenesV1.gtf \
-# /home/xilab/reference/Genome/Human/UCSC/T2T-CHM13-v2.0-hs1/hs1.fa \
-#  Human-UCSC-T2T-CHM13-v2.0-hs1 -p 24
-# 2.3 STAR index
-# path：/data0/reference/Genome/Human/UCSC/T2T-CHM13-v2.0-hs1
-# cd /data0/reference/STAR_index/Human/UCSC-T2T-CHM13-v2.0-hs1
-# ln -s /home/xilab/reference/Genome/Human/UCSC/T2T-CHM13-v2.0-hs1/catLiftOffGenesV1.gtf ./
-# ln -s /home/xilab/reference/Genome/Human/UCSC/T2T-CHM13-v2.0-hs1/hs1.fa ./
-# STAR \
-# --runThreadN 24 \
-# --runMode genomeGenerate \
-# --genomeDir STARindex_100bp \
-# --genomeFastaFiles ./hs1.fa \
-# --sjdbGTFfile ./catLiftOffGenesV1.gtf \
-# --sjdbOverhang 100
-
-# 补充分析
-# 1. reads 比对率低，判定是污染了什么物种，注意others，一般是的是接头序列，引物序列等。
-# cd results
-# mkdir S_Kraken2
-# cat sample_fastq_meta.txt | sed '1d' | while read sample fastq
-# do
-# kraken2 --db /data0/reference/MetaGenomics/kraken2/kraken2_db/k2_pluspf_fly_mouse_20220501 \
-# --threads 24 --use-names $fastq --report ./S_Kraken2/$(basename ${fastq}).kraken2.report \
-# > ./S_Kraken2/$(basename ${fastq}).kraken2.output
-# done
-# 再写个代码，提取top10的结果，或者图形展示。
 
 # Augument Parsing
 print_usage_and_exit(){
@@ -237,10 +125,10 @@ print_usage_and_exit(){
 
 Examples:
     Drosophlia dm6:
-        sh RNAseq-NEW.sh \\
+        sh RNAseq.sh \\
         -p true
     Mouse Gencode-GRCm39-vM31:
-        sh RNAseq-NEW.sh \\
+        sh RNAseq.sh \\
         -i /home/xilab/reference/STAR_index/Mouse/Gencode-GRCm39-vM31/STARindex_100bp \\
         -a /home/xilab/reference/hisat2_index/GRCm39-Gencode-vM31/genome_tran/genome_tran \\
         -r /home/xilab/reference/RSEM_index/mm10-Gencode-GRCm39-vM31/Genecode-GRCm39-vM31 \\
@@ -248,7 +136,7 @@ Examples:
         -b /home/xilab/reference/Genome/Mouse/GENCODE/GRCm39-vM31/gencode.vM31.primary_assembly.annotation.bed \\
         -p true 
     Human GENCODE-GRCh38-p13-release42:
-        sh RNAseq-NEW.sh \\
+        sh RNAseq.sh \\
         -i /data0/reference/STAR_index/Human/GENCODE-GRCh38-p13-release42-primary/STARindex_100bp \\
         -a /home/xilab/reference/hisat2_index/grch38/genome_tran/genome_tran \\
         -r /home/xilab/reference/RSEM_index/Human-GENCODE-GRCh38-p13-release42-primary/GENCODE-GRCh38-p13-release42-Primary \\
@@ -256,7 +144,7 @@ Examples:
         -b /data0/reference/Genome/Human/GENCODE/GRCh38.p13.release42/gencode.v42.primary_assembly.annotation.bed \\
         -p true
     Human UCSC-T2T-CHM13-v2.0-hs1:
-        sh RNAseq-NEW.sh \\
+        sh RNAseq.sh \\
         -i /data0/reference/STAR_index/Human/UCSC-T2T-CHM13-v2.0-hs1/STARindex_100bp \\
         -a /home/xilab/reference/hisat2_index/T2T-CHM13-v2.0-hs1-UCSC/genome_tran \\
         -r /home/xilab/reference/RSEM_index/Human-UCSC-T2T-CHM13-v2.0-hs1/Human-UCSC-T2T-CHM13-v2.0-hs1 \\
@@ -427,6 +315,24 @@ function plot_bam_function(){
         --removeOutliers \
         --outFileCorMatrix PearsonCorr_readCounts.tab
 }
+
+
+# save run info to file - codes.log
+# append mode, with time
+echo '# run parameters' >>  softwares.codes.log
+# 输出工作目录
+echo 'workding folder: ' `pwd` >>  softwares.codes.log
+# 输出是否为Test mode
+echo 'test mode: ' $test >>  softwares.codes.log
+# 输出线程数目
+echo 'threads: ' $threads >>  softwares.codes.log
+# 输出fastq样本信息
+echo 'paired: ' $paired >>  softwares.codes.log
+echo 'hisat2 index: ' $hisat2_index >>  softwares.codes.log
+echo 'star index: ' $star_index >>  softwares.codes.log
+echo 'gene bed file: ' $genes_bed >>  softwares.codes.log
+echo 'gene gtf file: ' $genes_gtf >>  softwares.codes.log
+echo 'rsem index:' $rsem_index >>  softwares.codes.log
 
 
 echo ">>>>>>>>>>> Step-0: Prepare the Analysis <<<<<<<<<<<"
@@ -807,14 +713,14 @@ cd ${output_path} && mkdir -p ./5_Qualimap_report && cd ./5_Qualimap_report && q
 cd ${star_mapping_path}
 export global_qualimap_path=${qualimap_path} && export global_genes_gtf=${genes_gtf}
 ls *sortedByCoord.out.bam | xargs -P $(($threads/6)) -n 1 \
-sh -c  'qualimap bamqc -bam $0 -outdir ${global_qualimap_path}/${0%.Aligned.sortedByCoord.out.bam}_STAR -nt 6 && \
-qualimap rnaseq -bam $0 -gtf $global_genes_gtf -outdir ${global_qualimap_path}/${0%.Aligned.sortedByCoord.out.bam}_STAR'
+sh -c  'qualimap bamqc -bam $0 -outdir ${global_qualimap_path}/${0%.Aligned.sortedByCoord.out.bam}_STAR -nt 6 --java-mem-size=8G && \
+qualimap rnaseq -bam $0 -gtf $global_genes_gtf -outdir ${global_qualimap_path}/${0%.Aligned.sortedByCoord.out.bam}_STAR --java-mem-size=8G'
 
 echo ">>>>>>>>>> Step-6B.2: Hisat2 align resulsts <<<<<<<<<<"
 cd ${hisat2_mapping_path}
 ls *.accepted_hits.bam | xargs -P $(($threads/6)) -n 1 \
-sh -c  'qualimap bamqc -bam $0 -outdir ${global_qualimap_path}/${0%.accepted_hits.bam}_Hisat2 -nt 6 && \
-qualimap rnaseq -bam $0 -gtf $global_genes_gtf -outdir ${global_qualimap_path}/${0%.accepted_hits.bam}_Hisat2'
+sh -c  'qualimap bamqc -bam $0 -outdir ${global_qualimap_path}/${0%.accepted_hits.bam}_Hisat2 -nt 6 --java-mem-size=8G && \
+qualimap rnaseq -bam $0 -gtf $global_genes_gtf -outdir ${global_qualimap_path}/${0%.accepted_hits.bam}_Hisat2 --java-mem-size=8G'
 
 export -n global_rseqc_path & export -n global_genes_bed & export -n global_qualimap_path
 
@@ -940,7 +846,7 @@ fi
 
 echo ">>>>>>>>>> Step-8: Generating analysis report with multiQC <<<<<<<<<<<"
 cd ${output_path} && mkdir -p ./7_multiQC && cd ./7_multiQC && multiqc_path=`pwd`
-multiqc -f ${output_path} --outdir ${multiqc_path} -c /home/xilab/reference/Scripts/config_example.yaml
+multiqc -f ${output_path} --outdir ${multiqc_path} -c $multiqc_config_path
 
 # cat /home/xilab/reference/Scripts/config_example.yaml
 # extra_fn_clean_exts:

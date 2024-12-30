@@ -606,7 +606,7 @@ if (FALSE) {
   #hist(odam$score,breaks = 100)
   
   write.table(t(c("oDAM-Pros-peaks", # pathway name
-                  "peaks from oDAM" # description
+                  "peaks from oDAM", # description
                   unique(odam$Gene.Name[odam$Gene.Name%in% names(geneList)]))), # all related genes
                   file = "oDam-pros-log2FoldChange-morethan1.gmt",
                   col.names = FALSE,quote = FALSE,sep = "\t",row.names = FALSE)

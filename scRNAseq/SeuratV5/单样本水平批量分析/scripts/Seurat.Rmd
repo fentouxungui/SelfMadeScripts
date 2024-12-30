@@ -32,7 +32,7 @@ suppressMessages(library(DT))
 
 ```{r}
 # 设置物种名字，用于识别线粒体基因，计算线粒体基因的表达占比。
-mt.species <- c(mouse = "^Mt:", fly = "^mt:", human = "^MT-")
+mt.species <- c(mouse = "^mt-", fly = "^mt:", human = "^MT-")
 species <- "human"
 ```
 

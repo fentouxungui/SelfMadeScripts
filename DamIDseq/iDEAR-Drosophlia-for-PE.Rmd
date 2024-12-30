@@ -269,7 +269,7 @@ iDEAR.data$PeakID <- paste0(iDEAR.data$seqnames,"-",rownames(iDEAR.data),sep="")
 
 head(results_for_anno)
 write.table(results_for_anno,file = "df.peaks.txt",row.names = FALSE,quote = FALSE,sep = "\t")
-system("annotatePeaks.pl df.peaks.txt dm6 > df.peaks.annotated.txt -gtf /data0/reference/UCSC/dm6/Annotation/Archives/archive-2015-07-24-09-25-49/Genes/genes.gtf")
+system("sh run_homer.sh")
 ```
 
 ## 合并iDEAR结果和HOMER注释结果
