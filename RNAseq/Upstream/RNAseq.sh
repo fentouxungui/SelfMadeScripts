@@ -60,7 +60,7 @@ fi
 # conda install bioconda::rsem
 # conda install bioconda::multiqc
 
-# check package avaliable and list the version
+# check package avaliable and list the version，考虑后期加一个参数，用于检测环境中的软件是否完整。
 # fastqc --version
 # trim_galore --version
 # STAR --version
@@ -81,12 +81,7 @@ fi
 # rsem-calculate-expression --version
 # multiqc --version
 
-# check package version by conda list
-touch softwares.codes.log
-# 输出时间
-echo '>>>>>>>>>> ' `date +'%Y-%m-%d %H:%M:%S'` >>  softwares.codes.log
-echo '# softwares:' >>  softwares.codes.log
-conda list | grep '^gffcompare\|^fastqc\|^trim-galore\|^star\|^hisat2\|^samtools\|^deeptools\|^rseqc\|^qualimap\|^subread\|^gffcompare\|^stringtie\|^rsem\|^multiqc' >> softwares.codes.log
+# 考虑加上断点重启功能
 
 
 ######################################################################################################################
@@ -317,6 +312,12 @@ function plot_bam_function(){
 }
 
 
+touch softwares.codes.log
+# output package version by conda list
+# 输出时间
+echo '>>>>>>>>>> ' `date +'%Y-%m-%d %H:%M:%S'` >>  softwares.codes.log
+echo '# softwares:' >>  softwares.codes.log
+conda list | grep '^gffcompare\|^fastqc\|^trim-galore\|^star\|^hisat2\|^samtools\|^deeptools\|^rseqc\|^qualimap\|^subread\|^gffcompare\|^stringtie\|^rsem\|^multiqc' >> softwares.codes.log
 # save run info to file - codes.log
 # append mode, with time
 echo '# run parameters' >>  softwares.codes.log
@@ -328,6 +329,7 @@ echo 'test mode: ' $test >>  softwares.codes.log
 echo 'threads: ' $threads >>  softwares.codes.log
 # 输出fastq样本信息
 echo 'paired: ' $paired >>  softwares.codes.log
+echo 'minimun reads length: ' $reads_min_length >>  softwares.codes.log
 echo 'hisat2 index: ' $hisat2_index >>  softwares.codes.log
 echo 'star index: ' $star_index >>  softwares.codes.log
 echo 'gene bed file: ' $genes_bed >>  softwares.codes.log
