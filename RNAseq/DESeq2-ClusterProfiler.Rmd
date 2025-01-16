@@ -396,51 +396,53 @@ for (genegroup in c("total","upregulated","downregulated")) {
 ```
 
 ### 10c. Enrich genes using the KEGG database
+
 ```{r}
-# if ( !dir.exists("KEGG") ) {
-#   dir.create("./KEGG")
-# }
-# 
-# for (genegroup in c("total","upregulated","downregulated")) {
-#   if (genegroup == "total") {
-#     gene_matrix_filtered <- gene_matrix
-#   }else if (genegroup == "upregulated") {
-#     gene_matrix_filtered <- gene_matrix[gene_matrix > 0]
-#   }else if (genegroup == "downregulated") {
-#     gene_matrix_filtered <- gene_matrix[gene_matrix < 0]
-#   }
-#   
-#   kegg_enrich <- enrichKEGG(gene = names(gene_matrix_filtered),
-#                             keyType = "ncbi-geneid",
-#                             organism = kegg.organism,
-#                             pvalueCutoff = 0.05, 
-#                             qvalueCutoff = 0.10)
-#   
-#   # Plot results
-#   if (!is.null(kegg_enrich) & (nrow(kegg_enrich) != 0)) {
-#     print(barplot(kegg_enrich, 
-#           drop = TRUE, 
-#           showCategory = 15, 
-#           title =  paste("KEGG Enrichment Pathways",genegroup,"Genes",sep = " "),
-#           font.size = 8))
-#   write.csv(kegg_enrich,file = paste("./KEGG/KEGG-Enrichment-Pathways",genegroup,"Genes.csv",sep = "-"))
-#   
-#     # Plotting KEGG Pathways
-#   for (path_id in kegg_enrich@result$ID[kegg_enrich@result$p.adjust < 0.05]) {
-#     suppressMessages(pathview(gene.data = gene_matrix_filtered, 
-#                               pathway.id = path_id, 
-#                               species = kegg.organism))
-#     }
-#   }
-# }
-# 
-# pathview.files <- grep("pathview.png",list.files(),value = TRUE)
-# if (length(pathview.files) != 0) {
-#   for (pathview.file in pathview.files) {
-#   files.move <- grep(gsub("pathview.png","",pathview.file),list.files(),value = TRUE)
-#   file.move(files.move,"./KEGG",overwrite = TRUE)
-#   }
-# }
+if ( !dir.exists("KEGG") ) {
+  dir.create("./KEGG")
+}
+
+for (genegroup in c("total","upregulated","downregulated")) {
+  if (genegroup == "total") {
+    gene_matrix_filtered <- gene_matrix
+  }else if (genegroup == "upregulated") {
+    gene_matrix_filtered <- gene_matrix[gene_matrix > 0]
+  }else if (genegroup == "downregulated") {
+    gene_matrix_filtered <- gene_matrix[gene_matrix < 0]
+  }
+
+  kegg_enrich <- enrichKEGG(gene = names(gene_matrix_filtered),
+                            keyType = "ncbi-geneid",
+                            organism = kegg.organism,
+                            pvalueCutoff = 0.05,
+                            qvalueCutoff = 0.10)
+
+  # Plot results
+  if (!is.null(kegg_enrich) & (nrow(kegg_enrich) != 0)) {
+    print(barplot(kegg_enrich,
+          drop = TRUE,
+          showCategory = 15,
+          title =  paste("KEGG Enrichment Pathways",genegroup,"Genes",sep = " "),
+          font.size = 8))
+  write.csv(kegg_enrich,file = paste("./KEGG/KEGG-Enrichment-Pathways",genegroup,"Genes.csv",sep = "-"))
+
+    # Plotting KEGG Pathways
+  for (path_id in kegg_enrich@result$ID[kegg_enrich@result$p.adjust < 0.05]) {
+    tryCatch({
+      suppressMessages(pathview(gene.data = gene_matrix_filtered,
+                              pathway.id = path_id,
+                              species = kegg.organism))},error = function(e){cat("Error:", conditionMessage(e), '\n')})
+    }
+  }
+}
+
+pathview.files <- grep("pathview.png",list.files(),value = TRUE)
+if (length(pathview.files) != 0) {
+  for (pathview.file in pathview.files) {
+  files.move <- grep(gsub("pathview.png","",pathview.file),list.files(),value = TRUE)
+  file.move(files.move,"./KEGG",overwrite = TRUE)
+  }
+}
 ```
 
 
