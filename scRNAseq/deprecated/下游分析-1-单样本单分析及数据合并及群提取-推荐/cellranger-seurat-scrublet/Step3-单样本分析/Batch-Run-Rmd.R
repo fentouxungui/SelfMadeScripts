@@ -1,0 +1,7 @@
+#rmarkdown::render(input="./Step3.1-Seurat-Filter-Cells-And-Preliminary-Analysis-Default.Rmd")
+#rmarkdown::render(input="./Step3.2-Doublets-Annotation-By-Scrublet.Rmd")
+#rmarkdown::render(input="./Step3.3-Seurat-Clustering-Without-Doublets.Rmd")
+rmarkdown::render(input="./Step3.4-Downstream-Analysis-Markers-GO-KEGG-etc.Rmd")
+rmarkdown::render(input="./Step3.4.1-Seurat-Downstream-Analyisis-GeneSortR.Rmd")
+rmarkdown::render(input="./Step3.5-Automated-Cluster-Annotation.Rmd")
+rmarkdown::render(input="./Step3.6-scVelo-Preparation-and-Run.Rmd")

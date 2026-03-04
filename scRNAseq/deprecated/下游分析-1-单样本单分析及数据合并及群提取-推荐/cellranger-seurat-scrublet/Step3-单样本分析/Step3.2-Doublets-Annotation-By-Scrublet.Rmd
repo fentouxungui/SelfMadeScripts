@@ -1,0 +1,139 @@
+---
+title: "Step3.2 Doublets Annotation By Scrublet"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE,
+  fig.align = "center")
+```
+
+
+```{r}
+Clean.rds.dir <- "./3.1-QC-Passed-Cells-Rds/"
+```
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(dplyr))
+suppressMessages(library(DT))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(Matrix))
+suppressMessages(library(clustree))
+suppressMessages(library(purrr))
+suppressMessages(library(reticulate))
+```
+
+
+# Scrublet Analysis in Python
+
+```{r}
+source_python("./Python-Scripts/ScrubletAnalysisInRmd.py")
+scrublet.res.list <- Scrublet_Rmd(mat_dir=Clean.rds.dir)
+# system("sh Step3.2-Doublets-Annotation-By-Scrublet.sh")
+```
+
+# Import Scrublet results to Rds file
+
+```{r}
+rds.file <- list.files(Clean.rds.dir,pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+
+if(length(scrublet.res.list[[1]]) != ncol(cds)){ stop("stoped for different length of cells.")}
+cds@meta.data$scrublet.doublets.score <- scrublet.res.list[[1]]
+cds@meta.data$scrublet.doublet <- ifelse(scrublet.res.list[[2]],"doublet","singlet")
+```
+
+# Cutoffs Statics and Plots
+
+```{r}
+cut.default <- sum(scrublet.res.list[[2]])
+cut.25 <- sum(scrublet.res.list[[1]] > 0.25)
+cut.15 <- sum(scrublet.res.list[[1]] > 0.15)
+cut.20 <- sum(scrublet.res.list[[1]] > 0.20)
+cell.sum <- length(scrublet.res.list[[1]])
+
+data.frame(Sample.Name = basename(getwd()),cell.sum,cut.default,cut.25,cut.20,cut.15)
+```
+
+```{r fig.height=6,fig.width=9}
+hist(scrublet.res.list[[1]],breaks = 30, main = basename(getwd()), xlab = "scrublet score",ylab = "cell counts")
+abline(v = c(0.15,0.20,0.25),col = c("red","blue","green"))
+```
+
+
+# Visualize the doublets score
+
+```{r fig.width=18,fig.height=5}
+plot_function <- function(cds,group = "cluster",reduction = "umap"){
+  p1 <- DimPlot(cds,label = TRUE,reduction = reduction)
+  p2 <- DimPlot(cds,label = TRUE,cells = rownames(cds@meta.data[cds@meta.data[,group] == "singlet",]),reduction = reduction)
+  if (sum(cds@meta.data[,group] != "singlet") > 1) { # at least 2 cell for each group
+    p3 <- DimPlot(cds,label = TRUE,cells = rownames(cds@meta.data[cds@meta.data[,group] != "singlet",]),reduction = reduction)
+    print(p1 + p2 + p3)
+  }else{
+    print(p1 + p2)
+  }
+}
+
+plot_function(cds,group = "scrublet.doublet")
+plot_function(cds,group = "scrublet.doublet",reduction = "tsne")
+```
+
+
+
+```{r fig.width=20,fig.height=10}
+qc.keys <- c(colnames(cds@meta.data)[2:6],"scrublet.doublets.score")
+cds$scrublet.doublet <- factor(cds$scrublet.doublet)
+
+VlnPlot(cds,features = qc.keys, ncol = 4,group.by = "scrublet.doublet",pt.size = 0.01)
+VlnPlot(cds,features = qc.keys, ncol = 4,group.by = "scrublet.doublet",pt.size = 0)
+VlnPlot(cds,features = qc.keys, ncol = 4, pt.size = 0.01)
+VlnPlot(cds,features = qc.keys, ncol = 4, pt.size = 0)
+```
+
+
+```{r fig.width=22,fig.height=10}
+FeaturePlot(cds, features = qc.keys, ncol = 4)
+```
+
+```{r fig.width=20,fig.height=15}
+# FeaturePlot(cds,features = c("Pdgfra","Epcam","Ptprc","Vwf","Pdgfrb","Nrxn1",'Rgs5','Acta2','Cd34','Il33','Il1rl1'),ncol = 4) & NoLegend()
+```
+
+** Question: is cluster x a doublet cluster?**
+
+```{r fig.width=12,fig.height=12}
+# cluster.markers <- FindMarkers(cds,ident.1 = 10,only.pos = TRUE)
+# dim(cluster.markers)
+# head(cluster.markers)
+# FeaturePlot(cds,features = rownames(cluster.markers)[1:9],ncol = 3) + NoLegend()
+```
+
+We can see some very specific markers from cluster 12, so should not remove cluster 12.
+
+
+# Overrides the Raw Rds files with doublet info
+
+```{r}
+saveRDS(cds,file = paste(Clean.rds.dir,basename(getwd()),".rds",sep = ""))
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+

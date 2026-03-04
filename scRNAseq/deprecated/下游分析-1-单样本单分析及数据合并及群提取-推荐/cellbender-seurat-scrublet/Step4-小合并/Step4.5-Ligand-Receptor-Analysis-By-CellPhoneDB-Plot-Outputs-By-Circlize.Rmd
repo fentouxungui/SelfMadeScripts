@@ -1,0 +1,73 @@
+---
+title: "cellphonedb-circlize-R"
+author: "Zhang Yongchao"
+date: "2020/7/22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(circlize)
+```
+
+```{r}
+df <- read.delim("count_network.txt",stringsAsFactors = FALSE)
+#head(df)
+```
+```{r}
+library(RColorBrewer)
+display.brewer.all()
+chosen.color <- brewer.pal(length(unique(df$SOURCE)), "Paired")
+cat(paste(unique(df$SOURCE),"=","\"",chosen.color,"\"",sep = "",collapse = ","))
+
+grid.col <- c(hFibro_Pdgfra_High="#A6CEE3",hEndo="#1F78B4",hFibro_Pdgfrb_High="#B2DF8A",hPlasma_cell="#33A02C",hT_cells="#FB9A99",hMyeloid_cell="#E31A1C",hEpi="#FDBF6F",hNeuron="#FF7F00",hB_cell="#CAB2D6",hMast_cell="#6A3D9A")
+```
+```{r}
+sector.order <- c("hFibro_Pdgfra_High","hEndo","hNeuron","hPlasma_cell","hFibro_Pdgfrb_High","hT_cells","hB_cell","hMyeloid_cell","hMast_cell","hEpi")
+```
+
+```{r fig.width=10,fig.height=10}
+chordDiagram(df,
+             transparency = 0.2,
+             grid.col = grid.col, 
+             order = sector.order,
+             link.sort = TRUE,
+             directional = 1,
+             direction.type = c("diffHeight", "arrows"),
+             link.arr.type = "big.arrow",
+             annotationTrack = c("grid", "axis"), 
+             annotationTrackHeight = mm_h(5))
+
+for(si in get.all.sector.index()) {
+    xlim = get.cell.meta.data("xlim", sector.index = si, track.index = 1)
+    ylim = get.cell.meta.data("ylim", sector.index = si, track.index = 1)
+    circos.text(mean(xlim), mean(ylim), si, sector.index = si, track.index = 1,
+                facing = "bending.inside", niceFacing = TRUE, col = "black",cex = 1)
+}
+circos.clear()
+```
+```{r fig.width=10,fig.height=10}
+chordDiagram(df,
+             transparency = 0.2,
+             grid.col = grid.col, 
+             order = sector.order,
+             scale = TRUE,
+             link.sort = TRUE,
+             directional = 1,
+             direction.type = c("diffHeight", "arrows"),
+             link.arr.type = "big.arrow",
+             annotationTrack = c("grid", "axis"), 
+             annotationTrackHeight = mm_h(5))
+
+for(si in get.all.sector.index()) {
+    xlim = get.cell.meta.data("xlim", sector.index = si, track.index = 1)
+    ylim = get.cell.meta.data("ylim", sector.index = si, track.index = 1)
+    circos.text(mean(xlim), mean(ylim), si, sector.index = si, track.index = 1,
+                facing = "bending.inside", niceFacing = TRUE, col = "black",cex = 1)
+}
+circos.clear()
+```
+

@@ -1,0 +1,63 @@
+---
+title: "Step5.4 scVelo - RNA velocity generalized through dynamical modeling "
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+  warning = FALSE,
+  collapse = TRUE)
+```
+
+```{r}
+suppressMessages(library(Seurat))
+```
+
+# import data
+
+```{r}
+rds.file <- list.files("./5.1-Rds",pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+```
+
+# export data
+
+```{r}
+Raw.dir <- "./5.4-scVelo/"
+
+if ( !dir.exists(Raw.dir)) {
+  dir.create(Raw.dir)
+}
+
+cells <- Cells(cds)
+cells <- paste(cds@meta.data$orig.ident,gsub("_\\d+$","x",cells),sep = ":")
+write.csv(cells, file = paste(Raw.dir,"cellID_obs.csv",sep = ""))
+
+embedding.umap <- Embeddings(cds, reduction = "umap")
+all(rownames(embedding.umap) == Cells(cds))
+rownames(embedding.umap) <- cells
+write.csv(embedding.umap, file = paste(Raw.dir,"cell_embeddings_umap.csv",sep = ""))
+
+embedding.umap <- Embeddings(cds, reduction = "tsne")
+all(rownames(embedding.umap) == Cells(cds))
+rownames(embedding.umap) <- cells
+write.csv(embedding.umap, file = paste(Raw.dir,"cell_embeddings_tsne.csv",sep = ""))
+
+cluster <- cds@meta.data
+cluster$cells <- cells
+write.csv(cluster, file = paste(Raw.dir,"clusters.csv",sep = ""))
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

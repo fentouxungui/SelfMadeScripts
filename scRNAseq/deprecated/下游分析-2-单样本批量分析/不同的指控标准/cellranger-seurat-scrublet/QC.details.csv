@@ -1,0 +1,15 @@
+"","pre.filter","nCount_RNA","nFeature_RNA","percent.mt","log10GenesPerUMI","post.filter"
+"APCmin_Mouse_duo_Para_Epi_200421",11343,3665,5699,8938,5115,763
+"APCmin_Mouse_duo_Para_Mesen_200421",929,304,377,432,383,351
+"APCmin_Mouse_duo_Tumor_Epi_200421",8940,3645,2496,5998,1371,695
+"APCmin_Mouse_duo_Tumor_Mesen_200421",1198,658,540,673,299,199
+"APCmin_Mouse_duo-jeju_Para_Mesen_210426",5187,1049,1545,3445,1163,1468
+"APCmin_Mouse_duo-jeju_Para_Mesen_210721",3874,1419,2083,2781,1088,604
+"APCmin_Mouse_duo-jeju_Tumor_Mesen_210426",4910,2310,1391,2805,925,802
+"APCmin_Mouse_duo-jeju_Tumor_Mesen_210721",4009,2148,1406,1552,982,1501
+"APCmin_Mouse_jeju_Para_Epi_200421",8913,3730,2346,5141,1935,990
+"APCmin_Mouse_jeju_Para_Mesen_200421",1936,588,353,749,360,1033
+"APCmin_Mouse_jeju_Tumor_Epi_200421",4824,2067,1739,2865,1720,254
+"APCmin_Mouse_jeju_Tumor_Mesen_200421",2823,1233,1079,1771,777,129
+"APCmin_Mouse_Rectum_Para_Mesen_210608",1762,480,276,284,167,1161
+"APCmin_Mouse_Rectum_Tumor_Mesen_210608",3248,1395,663,692,203,1706

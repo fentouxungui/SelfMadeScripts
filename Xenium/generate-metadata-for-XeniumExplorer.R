@@ -1,0 +1,20 @@
+graph_clusters <- read.csv(file.path('~/shared/xenium-spatial-202501/20250122_spatial_transcriptome_fetal_and_tumor/output-XETG00129__0041503__Region_1__20250115__051412/', 'analysis', 'clustering', 'gene_expression_graphclust', 'clusters.csv'), row.names = 'Barcode')
+head(graph_clusters)
+dim(graph_clusters)
+
+library(Seurat)
+library(qs2)
+cds <- qs_read(file = 'featal-SI_default.qs2')
+table(colnames(cds) %in% rownames(graph_clusters))
+
+cell_meta <- data.frame(cell_id = rownames(graph_clusters), group = rep("Others", nrow(graph_clusters)))
+head(cell_meta)
+cell_meta$group[match(rownames(cds@meta.data), cell_meta$cell_id)] <- paste0(cds@meta.data$RCTD_2_spot_class, "_", cds@meta.data$RCTD_2_first_type)
+table(cell_meta$group)
+write.csv(cell_meta,file = "cell-group-to-xeunuim-explorer.csv",quote = FALSE,row.names = FALSE)
+
+cell_meta <- data.frame(cell_id = rownames(graph_clusters), group = rep("Others", nrow(graph_clusters)))
+head(cell_meta)
+cell_meta$group[match(rownames(cds@meta.data), cell_meta$cell_id)] <- as.character(cds@meta.data$RCTD_2_spot_class)
+table(cell_meta$group)
+write.csv(cell_meta,file = "cell-group-to-xeunuim-explorer-singlet-doublet.csv",quote = FALSE,row.names = FALSE)

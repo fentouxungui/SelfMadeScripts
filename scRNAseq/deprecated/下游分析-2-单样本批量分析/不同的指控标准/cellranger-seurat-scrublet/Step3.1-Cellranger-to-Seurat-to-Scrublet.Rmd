@@ -1,0 +1,181 @@
+---
+title: "Step3.1-CellRanger-to-Seurat-and-Prepare-for-Scrublet"
+author: "Zhang Yongchao"
+date: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Seurat - Guided Clustering Tutorial
+
+see: https://satijalab.org/seurat/v3.1/pbmc3k_tutorial.html
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(Matrix))
+suppressMessages(library(clustree))
+```
+
+
+## import data
+
+```{r}
+cellranger.outputs <- paste(list.dirs("../../../Cellranger-Outputs",recursive = FALSE),"/outs/filtered_feature_bc_matrix",sep = "")
+cellranger.outputs
+```
+
+```{r}
+obj.list <- lapply(cellranger.outputs,function(x){
+  project.name <- basename(gsub("/outs/filtered_feature_bc_matrix","",x))
+  message("**** Processing sample: ",project.name)
+  cellranger_mat <- Read10X(x)
+  seurat.obj <- CreateSeuratObject(counts = cellranger_mat, project = project.name)
+  message("Done!")
+  return(seurat.obj)
+})
+obj.list
+```
+
+## QC
+
+```{r}
+obj.list <- lapply(obj.list, function(pbmc){
+  message("* Processing sample: ",pbmc@project.name)
+  pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^mt-")
+  pbmc[["UMI.Non.mt"]] <- pbmc[["nCount_RNA"]]*(1-pbmc[["percent.mt"]]/100)
+  return(pbmc)
+})
+```
+
+```{r fig.width=6,fig.height=24}
+raw.merged <- merge(obj.list[[1]],obj.list[-1])
+table(raw.merged@meta.data$orig.ident)
+VlnPlot(raw.merged,features = c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt"), ncol = 1,pt.size = 0.001)
+VlnPlot(raw.merged,features = c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt"), ncol = 1,pt.size = 0)
+```
+
+
+```{r}
+hist(raw.merged@meta.data$nCount_RNA,breaks = 300,xlim = c(0,120000))
+hist(raw.merged@meta.data$UMI.Non.mt,breaks = 300,xlim = c(0,20000))
+hist(raw.merged@meta.data$nFeature_RNA,breaks = 70,xlim = c(0,9000))
+hist(raw.merged@meta.data$nFeature_RNA,breaks = 100,xlim = c(0,1000))
+hist(raw.merged@meta.data$percent.mt,breaks = 60)
+rm("raw.merged")
+```
+
+
+```{r}
+obj.list <- lapply(obj.list,function(x){
+  print(paste("*Processing sample: ",x@project.name,sep = ""))
+  x <- subset(x, subset = nCount_RNA < 8e4 & nFeature_RNA > 700 & percent.mt < 25 & nCount_RNA > 3000 & nFeature_RNA < 8000) 
+  return(x)
+})
+```
+
+```{r fig.height=24,fig.width=6}
+clean.merged <- merge(obj.list[[1]],obj.list[-1])
+table(clean.merged@meta.data$orig.ident)
+VlnPlot(clean.merged,features = c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt"), ncol = 1,pt.size = 0.001)
+VlnPlot(clean.merged,features = c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt"), ncol = 1,pt.size = 0)
+```
+
+```{r}
+hist(clean.merged@meta.data$nCount_RNA,breaks = 300,xlim = c(0,90000))
+hist(clean.merged@meta.data$UMI.Non.mt,breaks = 300,xlim = c(0,20000))
+hist(clean.merged@meta.data$nFeature_RNA,breaks = 70,xlim = c(0,9000))
+hist(clean.merged@meta.data$nFeature_RNA,breaks = 100,xlim = c(0,1000))
+hist(clean.merged@meta.data$percent.mt,breaks = 60)
+rm("clean.merged")
+```
+
+```{r fig.width=18,fig.height=6}
+for (sample.no in 1:length(obj.list)) {
+  x <- obj.list[[sample.no]]
+  message(paste("*Processing sample: ",x@project.name,sep = ""))
+  plot1 <- FeatureScatter(x, feature1 = "nCount_RNA", feature2 = "percent.mt")
+  plot2 <- FeatureScatter(x, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+  print(plot1 + plot2)
+}
+```
+
+
+## Normalizing the data
+
+```{r}
+obj.list <- lapply(obj.list, function(x){
+  message(paste("*Processing sample: ",x@project.name,sep = ""))
+  x <- NormalizeData(x, normalization.method = "LogNormalize", scale.factor = 10000)
+  x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 3000)
+  s.genes <- readRDS("/data2/shared_data_backup/zhugl/scRNAseq-mouse-Intestine/Downstream-Analysis/Total-Embryo-SI-Sample/mouse.s.genes.rds")
+  g2m.genes <- readRDS("/data2/shared_data_backup/zhugl/scRNAseq-mouse-Intestine/Downstream-Analysis/Total-Embryo-SI-Sample/mouse.g2m.genes.rds")
+  x <- CellCycleScoring(x, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+  x <- ScaleData(x, vars.to.regress = c("percent.mt","nCount_RNA","S.Score", "G2M.Score"))
+  x <- RunPCA(x, features = VariableFeatures(x))
+  x <- RunUMAP(x, dims = 1:20)
+  x <- RunTSNE(x, dims = 1:20)
+  x <- FindNeighbors(x, dims = 1:20) %>% FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6))
+  Idents(x) <- "RNA_snn_res.0.6"
+  return(x)
+})
+```
+
+
+```{r fig.width=8,fig.height=8}
+for (sample.no in 1:length(obj.list)) {
+  x <- obj.list[[sample.no]]
+  message(paste("*Processing sample: ",x@project.name,sep = ""))
+  print(clustree(x@meta.data, prefix = "RNA_snn_res."))
+}
+```
+
+
+```{r fig.width=6,fig.height=6}
+for (sample.no in 1:length(obj.list)) {
+  x <- obj.list[[sample.no]]
+  message(paste("*Processing sample: ",x@project.name,sep = ""))
+  print(DimPlot(x, reduction = "umap",label = TRUE))
+  print(DimPlot(x, reduction = "tsne",label = TRUE))
+}
+```
+
+```{r fig.width=12,fig.height=8}
+for (sample.no in 1:length(obj.list)) {
+  x <- obj.list[[sample.no]]
+  message(paste("*Processing sample: ",x@project.name,sep = ""))
+  print(FeaturePlot(x,features = c("Ptprc","Epcam","Pdgfra","nFeature_RNA", "nCount_RNA", "percent.mt"),label = TRUE,ncol = 3) & NoLegend())
+}
+```
+
+```{r}
+Raw.dir <- "./Raw_rds/"
+dir.create(Raw.dir)
+for (sample.no in 1:length(obj.list)) {
+  x <- obj.list[[sample.no]]
+  message(paste("*Processing sample: ",x@project.name,sep = ""))
+  sampleName <- paste(x@project.name,".rds",sep = "")
+  saveRDS(x,file = paste(Raw.dir,sampleName,sep = ""))
+}
+```
+
+# prepare mtx files for Scrublet analysis
+
+## Export umi counts
+
+```{r}
+Raw.dir <- "./Raw_mtx/"
+dir.create(Raw.dir)
+for (sample.no in 1:length(obj.list)) {
+  x <- obj.list[[sample.no]]
+  message(paste("*Processing sample: ",x@project.name,sep = ""))
+  Amatrix <- as.matrix(x@assays$RNA@counts)
+  writeMM(Matrix(Amatrix,sparse = TRUE),file = paste(Raw.dir,x@project.name,".UMI.mtx",sep = ""))
+}
+```
+

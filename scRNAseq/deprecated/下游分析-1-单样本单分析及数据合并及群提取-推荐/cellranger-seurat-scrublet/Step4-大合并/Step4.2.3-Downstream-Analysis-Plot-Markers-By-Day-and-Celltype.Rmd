@@ -1,0 +1,78 @@
+---
+title: "Step4.2 Downstream Analysis"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+**Parameters:**
+
+```{r}
+Results.dir <- "./4.2-Downstream-Analysis"
+plot.markers.file <- "./cell_markers-jz-Format(1).csv"
+```
+
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(dplyr))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(pheatmap))
+```
+
+```{r fig.width=6,fig.height=6}
+cds <- readRDS(list.files("./4.1-Merged-Rds",pattern = "rds$",full.names = TRUE))
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+Idents(cds) <- cluster.resolution
+DimPlot(cds,label = TRUE) + NoLegend()
+```
+
+# import markers
+
+```{r}
+markers.df <- read.csv(plot.markers.file,stringsAsFactors = FALSE,skip = 1,check.names = FALSE)
+markers.df <- markers.df[-1,]
+markers.df
+```
+```{r}
+genes <- unname(unlist(markers.df))
+genes <- genes[genes != ""]
+genes
+```
+```{r}
+# check the markers
+genes[!genes %in% rownames(cds)]
+```
+
+# Dotplot
+
+```{r}
+if (all(colnames(markers.df) %in% cds@meta.data$Annotation.Manually.General)) {
+  cds@meta.data$Annotation.Manually.General <- factor(cds@meta.data$Annotation.Manually.General,
+                                                     levels = colnames(markers.df))
+}
+```
+
+
+```{r fig.width=10,fig.height=5}
+DotPlot(cds,features = rev(unique(genes)), group.by = "Annotation.Manually.General", assay = "CellBender") + RotatedAxis()
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

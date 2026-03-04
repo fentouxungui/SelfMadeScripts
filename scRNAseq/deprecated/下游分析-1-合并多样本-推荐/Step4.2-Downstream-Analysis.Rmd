@@ -1,0 +1,94 @@
+---
+title: "Step4.1-QC-for-merged-data"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(cowplot))
+suppressMessages(library(ggplot2))
+suppressMessages(library(ggpubr))
+suppressMessages(library(scater))
+suppressMessages(library(DT))
+suppressMessages(library(purrr))
+```
+
+```{r}
+cds <- readRDS("./Merge-All-SeuratHarmony.rds")
+cluster.resolution <- paste(DefaultAssay(immune.combined),"_snn_res.0.6",sep = "")
+# cluster.resolution <- "RNA_snn_res.0.6"
+Idents(immune.combined) <- cluster.resolution
+DimPlot(cds,label = TRUE)
+```
+
+# Compare the clustering of merged sample and single sample 
+
+```{r}
+# vs.table <- data.frame(table(cds@meta.data[,cluster.resolution],cds@meta.data[,paste("Single_", cluster.resolution, sep = "")],cds@meta.data$orig.ident))
+# colnames(vs.table)[1:3] <- c("merged","single","sample")
+# DT::datatable(filter(vs.table,Freq != 0))
+```
+
+```{r}
+rds.files <- grep("removed.rds$",list.files("../../Single-Sample/cellbender-scrublet-seurat/",full.names = TRUE),value = TRUE)
+rds.files <- grep("mesen",rds.files,value = TRUE)
+rds.files
+project.names <- c("APCmin_Mouse_duo-jeju_Para_Mesen_210426",
+                   "APCmin_Mouse_duo-jeju_Tumor_Mesen_210426",
+                   "APCmin_Mouse_duo-jeju_Para_Mesen_210721",
+                   "APCmin_Mouse_duo_Para_Mesen_200421",
+                   "APCmin_Mouse_jeju_Para_Mesen_200421",
+                   "APCmin_Mouse_duo-jeju_Tumor_Mesen_210721",
+                   "APCmin_Mouse_duo_Tumor_Mesen_200421",
+                   "APCmin_Mouse_jeju_Tumor_Mesen_200421")
+names(project.names) <- rds.files
+project.names
+obj.list <- lapply(rds.files, function(pbmc){
+  message("* Processing sample: ",pbmc)
+  cds <- readRDS(pbmc)
+  cds@project.name <- unname(project.names[pbmc])
+  cds@meta.data$orig.ident <- unname(project.names[pbmc])
+  return(cds)
+})
+obj.list
+```
+```{r}
+# obj.list <- obj.list[-6]
+```
+
+```{r fig.width=10,fig.height=8}
+FeaturePlot(cds,features = c("Pdgfra","Epcam","Ptprc","Vwf","Pdgfrb","Nrxn1",'Rgs5','scrublet','Acta2','Cd34','Il33','Il1rl1')) & NoLegend()
+```
+
+```{r fig.width=8,fig.height=8}
+p1 <- DimPlot(cds,label = TRUE, group.by = "RNA_snn_res.0.8") + NoLegend()
+map(1:length(obj.list),function(x){
+  print(obj.list[[x]]@project.name)
+  p2 <- DimPlot(cds,label = TRUE,cells = colnames(cds)[cds@meta.data$orig.ident == obj.list[[x]]@project.name]) + NoLegend()
+  p3 <- DimPlot(cds,label = TRUE,cells = colnames(cds)[cds@meta.data$orig.ident == obj.list[[x]]@project.name],group.by = "old_without_doublets_RNA_snn_res.0.8") + NoLegend()
+  p4 <- DimPlot(obj.list[[x]],label = TRUE,group.by = "RNA_snn_res.0.8") + NoLegend()
+  print(wrap_plots(list(p1,p2,p3,p4)))
+  print(FeaturePlot(obj.list[[x]],features = c("Pdgfra","Epcam","Ptprc","Vwf","Pdgfrb","Nrxn1",'Rgs5','scrublet','Acta2','Cd34'),ncol = 3) & NoLegend())
+})
+```
+
+# Cluster Correlation
+
+## Merged
+
+## By Type

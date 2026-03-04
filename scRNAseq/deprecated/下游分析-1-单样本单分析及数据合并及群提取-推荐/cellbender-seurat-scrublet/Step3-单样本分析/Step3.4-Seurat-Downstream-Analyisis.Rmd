@@ -1,0 +1,170 @@
+---
+title: "Step3.4 Seurat Downstream analysis"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE,
+  fig.align = "center")
+```
+
+```{r}
+Clean.rds.dir <- "./3.3-Clean-Cells-Rds/"
+Raw.rds.dir <- "./2.2-Raw-Rds/"
+Results.dir <- "./3.4-Downstream-Analysis/ClusterMarkers/"
+```
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(scater))
+suppressMessages(library(pheatmap))
+suppressMessages(library(reshape2))
+```
+
+
+# import data and set parameters
+
+```{r}
+rds.file <- list.files(Clean.rds.dir,pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+```
+
+**Parameters:**
+
+```{r}
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+# cluster.resolution <- "RNA_snn_res.0.6"
+Idents(cds) <- cluster.resolution
+```
+
+# Find Cluster Markers
+
+```{r}
+cds.markers <- FindAllMarkers(cds, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+cds.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
+```
+
+# Heatmap of top 10 markers
+
+```{r fig.height=15,fig.width=14}
+top10 <- cds.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+DoHeatmap(cds, features = top10$gene) + NoLegend()
+```
+
+# Dotplot of top 3 markers
+
+```{r fig.width=12,fig.height=12}
+DefaultAssay(cds) <- "RNA"
+cds <- NormalizeData(cds,assay = DefaultAssay(cds))
+DefaultAssay(cds) <- "CellBender"
+
+top3 <- cds.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_logFC)
+p1 <- DotPlot(cds,features = unique(top3$gene), group.by = cluster.resolution, assay = "CellBender") + RotatedAxis()
+p2 <- DotPlot(cds,features = unique(top3$gene), group.by = cluster.resolution, assay = "RNA") + RotatedAxis()
+wrap_plots(p1,
+           p2,ncol = 1)
+```
+
+# Dotplot of top 3 reveised genes by Cellbender
+
+## top 30 genes with changed UMIs
+
+```{r fig.width=12,fig.height=12}
+top3 <- read.csv(paste(Raw.rds.dir,"Genes-with-summed-revised-UMI-counts.csv",sep = ""),stringsAsFactors = FALSE)
+
+p1 <- DotPlot(cds,features = unique(top3[1:30,1]), group.by = cluster.resolution, assay = "CellBender") + RotatedAxis()
+p2 <- DotPlot(cds,features = unique(top3[1:30,1]), group.by = cluster.resolution, assay = "RNA") + RotatedAxis()
+wrap_plots(p1,
+           p2,ncol = 1)
+
+top3 <- top3[top3[,1] %in% top10$gene,]
+p1 <- DotPlot(cds,features = unique(top3[1:30,1]), group.by = cluster.resolution, assay = "CellBender") + RotatedAxis()
+p2 <- DotPlot(cds,features = unique(top3[1:30,1]), group.by = cluster.resolution, assay = "RNA") + RotatedAxis()
+wrap_plots(p1,
+           p2,ncol = 1)
+```
+
+## top 30 genes with changed cells
+
+```{r fig.width=12,fig.height=12}
+top3 <- read.csv(paste(Raw.rds.dir,"Genes-with-summed-revised-cells.csv",sep = ""),stringsAsFactors = FALSE)
+
+p1 <- DotPlot(cds,features = unique(top3[1:30,1]), group.by = cluster.resolution, assay = "CellBender") + RotatedAxis()
+p2 <- DotPlot(cds,features = unique(top3[1:30,1]), group.by = cluster.resolution, assay = "RNA") + RotatedAxis()
+wrap_plots(p1,
+           p2,ncol = 1)
+
+top3 <- top3[top3[,1] %in% top10$gene,]
+p1 <- DotPlot(cds,features = unique(top3[1:30,1]), group.by = cluster.resolution, assay = "CellBender") + RotatedAxis()
+p2 <- DotPlot(cds,features = unique(top3[1:30,1]), group.by = cluster.resolution, assay = "RNA") + RotatedAxis()
+wrap_plots(p1,
+           p2,ncol = 1)
+```
+
+# Cluster correlation
+
+```{r fig.height=6,fig.width=7}
+av.exp <- AverageExpression(cds)[[DefaultAssay(cds)]]
+cor.exp <- as.data.frame(cor(av.exp,method = "pearson"))
+pheatmap(cor.exp)
+cor.exp <- as.data.frame(cor(av.exp,method = "spearman"))
+pheatmap(cor.exp)
+```
+
+# highly expressed Genes in cluster level
+
+```{r fig.width=6,fig.height=6}
+for (i in levels(cds@active.ident)) {
+  print(plotHighestExprs(as.SingleCellExperiment(subset(cds,idents = i),assay = DefaultAssay(cds)),colour_cells_by = cluster.resolution))
+}
+```
+
+```{r}
+expr.ave <- AverageExpression(cds,assays = DefaultAssay(cds))[[1]]
+expr.ave$gene <- rownames(expr.ave)
+expr.ave.melt <- reshape2::melt(expr.ave,id.vars = "gene", value.name = "expr",variable.name = "cluster")
+top_20_genes <- expr.ave.melt %>%
+  group_by(cluster) %>%
+  top_n(20,expr) %>%
+  arrange(cluster,desc(expr))
+
+DT::datatable(top_20_genes,  extensions = c('Buttons','ColReorder','FixedColumns'),
+              options = list(pageLength = 20, 
+                             autoWidth = TRUE,
+                             scrollX = FALSE,
+                             scrollY = FALSE,
+                             dom = 'Bfrtip', # Buttons | note B in dom denotes the place where the buttons are to be inserted
+                             buttons = c('csv', 'pdf'),
+                             colReorder = FALSE,
+                             fixedColumns = FALSE)
+              )
+```
+
+# save results
+
+```{r}
+if ( !dir.exists(Results.dir)) {
+  dir.create(Results.dir,recursive = TRUE)
+}
+
+write.csv(cds.markers,file = paste(Results.dir,basename(getwd()),"+",cluster.resolution,"+Default.csv",sep = ""))
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

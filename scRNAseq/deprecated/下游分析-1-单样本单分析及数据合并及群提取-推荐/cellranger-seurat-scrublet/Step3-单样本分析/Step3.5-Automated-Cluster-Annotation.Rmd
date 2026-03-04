@@ -1,0 +1,256 @@
+---
+title: "Step3.5 Automated Cluster Annotation"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+  warning = FALSE,
+  collapse = TRUE,
+  fig.align = "center")
+```
+
+```{r}
+Clean.rds.dir <- "./3.3-Clean-Cells-Rds"
+Results.SCSA.dir <- "./3.5-Cluster-Annotation/SCSA"
+Cluster.Markers.dir <- "./3.4-Downstream-Analysis/Cluster-Markers"
+SCSA.py.dir <- "/home/xilab/software/Python-SCSA/SCSA/"
+```
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(clustree))
+suppressMessages(library(SingleR))
+suppressMessages(library(pheatmap))
+suppressMessages(library(DT))
+suppressMessages(library(scCATCH))
+```
+
+# import data and set parameters
+
+```{r}
+rds.file <- list.files(Clean.rds.dir,pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+```
+
+**Parameters:**
+
+```{r}
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+# cluster.resolution <- "RNA_snn_res.0.6"
+Idents(cds) <- cluster.resolution
+```
+
+# SingleR
+
+> [Using SingleR to annotate single-cell RNA-seq data](https://bioconductor.org/packages/release/bioc/vignettes/SingleR/inst/doc/SingleR.html)
+
+```{r}
+hpca.se <- MouseRNAseqData()
+hpca.se
+table(hpca.se$label.main)
+```
+
+## performed on single cells 
+
+```{r}
+umi.matrix <- cds[[DefaultAssay(cds)]]@data
+pred.hesc <- SingleR(test = umi.matrix, ref = hpca.se, labels = hpca.se$label.main)
+head(pred.hesc)
+table(pred.hesc$first.labels)
+sum(is.na(pred.hesc$pruned.labels))
+```
+
+```{r fig.width=30,fig.height=8}
+plotScoreHeatmap(pred.hesc,annotation_col = cds@meta.data[,c(paste(DefaultAssay(cds),"_snn_res.0.2",sep = ""), cluster.resolution)])
+```
+
+```{r}
+all(rownames(pred.hesc) == rownames(cds@meta.data))
+table(pred.hesc$first.labels,cds@meta.data[,cluster.resolution])
+tab <- table(Assigned=pred.hesc$pruned.labels, Cluster=cds@active.ident)
+# Adding a pseudo-count of 10 to avoid strong color jumps with just 1 cell.
+pheatmap(log2(tab+10), color=colorRampPalette(c("white", "blue"))(101))
+
+table(pred.hesc$first.labels,cds@meta.data[,paste(DefaultAssay(cds),"_snn_res.0.2",sep = "")])
+tab <- table(Assigned=pred.hesc$pruned.labels, Cluster=cds@meta.data[,paste(DefaultAssay(cds),"_snn_res.0.2",sep = "")])
+# Adding a pseudo-count of 10 to avoid strong color jumps with just 1 cell.
+pheatmap(log2(tab+10), color=colorRampPalette(c("white", "blue"))(101))
+```
+
+
+```{r fig.height=10,fig.width=8}
+plotScoreDistribution(pred.hesc)
+```
+
+
+## aggregated into cluster-level profiles prior to annotation
+
+```{r}
+pred.cluster <- SingleR(test = umi.matrix, 
+                        ref = hpca.se, 
+                        labels = hpca.se$label.main,
+                        method = "cluster",
+                        clusters = cds@active.ident)
+```
+
+
+```{r fig.width=8,fig.height=4}
+plotScoreHeatmap(pred.cluster,show.labels = TRUE)
+```
+```{r fig.height=10,fig.width=8}
+plotScoreDistribution(pred.cluster)
+```
+
+## save annotation
+
+```{r fig.width=9,fig.height=6}
+cds@meta.data[,"Annotation.SingleR.SingleCell.level"] <- as.factor(pred.hesc$labels)
+cds@meta.data[,"Annotation.SingleR.Cluster.level"] <- as.factor(pred.cluster$labels[match(as.character(cds@active.ident),rownames(pred.cluster))])
+DimPlot(cds,label = TRUE,group.by = "Annotation.SingleR.SingleCell.level")
+DimPlot(cds,label = TRUE,group.by = "Annotation.SingleR.Cluster.level")
+```
+
+# SCSA
+
+> [SCSA: cell type annotation for single-cell RNA-seq data(https://github.com/bioinfo-ibms-pumc/SCSA)
+
+## code
+
+```{r}
+if ( !dir.exists(Results.SCSA.dir)) {
+  dir.create(Results.SCSA.dir,recursive = TRUE)
+}
+
+SCSA.py.path <- paste(SCSA.py.dir,"SCSA.py",sep = "")
+SCSA.db.path <- paste(SCSA.py.dir,"whole.db",sep = "")
+Markers.csv <- list.files(Cluster.Markers.dir,full.names = TRUE,pattern = "csv$")[1]
+Results.txt <- paste(Results.SCSA.dir,"pythonSCSA.Results.txt", sep = "/")
+Results.log <- paste(Results.SCSA.dir,"pySCSA.log", sep = "/")
+```
+
+SCSA code Demo
+
+```{bash eval = FALSE}
+# This code will not run for setting: eval = FALSE
+python3 /home/xilab/software/Python-SCSA/SCSA/SCSA.py \
+-d /home/xilab/zhangyc/Python-SCSA/SCSA/whole.db \
+-s seurat \
+-i  ./3.4-Downstream-Analysis/DEGs/*.csv \
+-k All \
+-E \
+-g Mouse \
+-m txt \
+-f 0.25 \
+-o ./3.5-Cluster-Annotation/SCSA/pythonSCSA.Results.txt \
+>& ./3.5-Cluster-Annotation/SCSA/pySCSA.log
+```
+
+
+```{r}
+SCSA.command <- paste("python3",SCSA.py.path,"-d",SCSA.db.path,"-s seurat -i",Markers.csv,"-k All -E -g Mouse -m txt -f 0.25 -o",Results.txt,">&",Results.log)
+SCSA.command
+```
+
+```{r}
+system(SCSA.command)
+```
+
+## results - cluster annotation info
+
+```{r}
+anno <- read.delim(Results.txt,stringsAsFactors = FALSE)
+anno <- anno %>% 
+  dplyr::group_by(Cluster) %>%
+  top_n(10, Z.score)
+DT::datatable(anno ) %>% formatSignif(columns="Z.score", digits=4)
+```
+
+## results - cluster GO info
+
+```{r}
+GO <- read.delim(paste(Results.txt,".go",sep = ""),stringsAsFactors = FALSE)
+GO <- GO[GO$q.value < 0.05,]
+DT::datatable(GO) %>% formatSignif(columns=c('p.value', 'q.value'), digits=2)
+```
+
+## save Annotation info to rds file
+
+**Attention**: Only use the labels with highest score to annotate clusters
+
+```{r fig.width=9,fig.height=6}
+cluster.info <- anno %>% 
+  group_by(Cluster) %>%
+  top_n(1,Z.score)
+cds@meta.data[,"Annotation.SCSA.Cluster.level"] <- as.factor(cluster.info$Cell.Type[match(as.numeric(as.character(cds@active.ident)),cluster.info$Cluster)])
+DimPlot(cds,label = TRUE,group.by = "Annotation.SCSA.Cluster.level")
+```
+
+# CellAssign
+
+> [cellassign](https://github.com/Irrationone/cellassign)
+
+Not used here, You need provide a makers file from a well annotated scRNAseq data!
+
+# Garnett
+
+> [garnett](https://cole-trapnell-lab.github.io/garnett/)
+
+Not used here, You need provide a well annotated scRNAseq data to train a cell type classifier.
+
+# scCATCH
+
+> [ZJUFanLab/scCATCH](https://github.com/ZJUFanLab/scCATCH)
+
+> Cell Types:
+
+1. [Human](https://github.com/ZJUFanLab/scCATCH/wiki/human_tissues)
+
+2. [Mouse](https://github.com/ZJUFanLab/scCATCH/wiki/mouse_tissues)
+
+I thought the rannotation quality depens on the cell marker reference, while I do not found celltypes of mesen or endothelium...
+
+## code
+
+```{r}
+clu_markers <- read.csv(Markers.csv,row.names = 1,stringsAsFactors = FALSE)
+clu_ann<- scCATCH(clu_markers, species = 'Mouse', tissue = c("Colon", "Colon epithelium", "Fetal intestine", "Gastrointestinal tract", "Ileum", "Intestinal crypt", "Intestine", "Mesenteric lymph node", "Small intestine",
+                                                             "Fetal brain","Embryo", "Embryoid body", "Embryonic heart", "Embryonic stem cell","Fetal stomach"))
+```
+
+## results
+
+```{r}
+DT::datatable(clu_ann[,-2])
+```
+
+## save to rds file
+
+```{r fig.width=9,fig.height=6}
+cds@meta.data[,"Annotation.scCATCH.Cluster.level"] <- as.factor(clu_ann$cell_type[match(as.numeric(as.character(cds@active.ident)),clu_ann$cluster)])
+DimPlot(cds,label = TRUE,group.by = "Annotation.scCATCH.Cluster.level")
+```
+
+
+# Save Final results
+
+```{r}
+saveRDS(cds,file = rds.file)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

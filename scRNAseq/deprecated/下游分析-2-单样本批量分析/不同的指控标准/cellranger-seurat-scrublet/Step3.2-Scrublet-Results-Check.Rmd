@@ -1,0 +1,70 @@
+---
+title: "Scrublet-results"
+author: "Zhang Yongchao"
+date: "February 24, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+scr.res.files <- grep("score.txt$",list.files("./Raw_Scrublet/",full.names = TRUE),value = TRUE)
+```
+
+```{r}
+scr.res.list <- lapply(scr.res.files, function(x){
+  scrublet <- read.table(x)
+})
+names(scr.res.list) <- gsub(".scrublet.score.txt","",basename(scr.res.files))
+```
+
+```{r}
+sample.name <- c()
+score <- c()
+
+con <- file("./Raw_Scrublet/scrublet.log.txt", "r")
+line=readLines(con,n=1)
+while( length(line) != 0 ) {
+  if (grepl("UMI.mtx",line)) {
+    sample.name <- append(sample.name,gsub(".UMI.mtx","",gsub(" \\*+$","",gsub("\\*+ ","",line))))
+  }else if(grepl("doublet score =",line)){
+    score <- append(score,as.numeric(substring(line,nchar(line)-3,nchar(line))))
+  }
+  line=readLines(con,n=1)  
+}
+close(con)
+names(score) <- sample.name
+```
+
+```{r fig.height=6,fig.width=9}
+cut.25 <- c()
+cut.15 <- c()
+cut.20 <- c()
+cut.default <- c()
+sampleName <- c()
+cell.sum <- c()
+
+for (i in 1:length(scr.res.list)) {
+  sampleName <- append(sampleName,names(scr.res.list)[i])
+  cut.default <- append(cut.default,sum(scr.res.list[[i]]$V1 > unname(score[match(names(scr.res.list)[i],names(score))])))
+  cut.25 <- append(cut.25,sum(scr.res.list[[i]]$V1 > 0.25))
+  cut.15 <- append(cut.15,sum(scr.res.list[[i]]$V1 > 0.15))
+  cut.20 <- append(cut.20,sum(scr.res.list[[i]]$V1 > 0.20))
+  cell.sum <- append(cell.sum,length(scr.res.list[[i]]$V1 ))
+}
+
+data.frame(sampleName,cell.sum,cut.default,cut.25,cut.20,cut.15)
+```
+
+```{r fig.height=10,fig.width=14}
+par(mfrow = c(4,4))
+for (i in 1:length(scr.res.list)) {
+  print(hist(scr.res.list[[i]]$V1,breaks = 30,main = names(scr.res.list)[i],xlab = "scrublet score",ylab = "cell counts"))
+  print(abline(v = c(0.15,0.20,0.25,unname(score[match(names(scr.res.list)[i],names(score))])),col = c("red","blue","green","black")))
+}
+```
+
+

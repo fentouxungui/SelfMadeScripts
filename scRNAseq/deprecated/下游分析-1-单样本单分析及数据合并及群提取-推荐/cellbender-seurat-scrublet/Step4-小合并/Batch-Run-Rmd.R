@@ -1,0 +1,5 @@
+rmarkdown::render(input="./Step4.1-Merge-Replicates-by-SeuratHarmony.Rmd")
+rmarkdown::render(input="./Step4.2-Downstream-Analysis.Rmd")
+rmarkdown::render(input="./Step4.2.1-Seurat-Downstream-Analyisis-GeneSortR.Rmd")
+rmarkdown::render(input="./Step4.3-Automated-Cluster-Annotation.Rmd")
+rmarkdown::render(input="./Step4.4-scVelo-Preparation-and-Run-For-Replicates-Merge.Rmd")

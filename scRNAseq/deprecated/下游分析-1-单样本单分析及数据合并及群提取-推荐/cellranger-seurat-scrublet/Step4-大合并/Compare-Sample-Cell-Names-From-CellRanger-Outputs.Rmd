@@ -1,0 +1,43 @@
+---
+title: "Compare-Cell-Names-From-CellRanger-Outputs"
+author: "Zhang Yongchao"
+date: "October 9, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+```
+
+```{r}
+cells.list <- list()
+sc.samples <- list.files("../../../CellRanger-Outputs", full.names = TRUE)
+for (i in sc.samples) {
+  cellranger.out <- paste(i, "/outs/filtered_feature_bc_matrix", sep = "")
+  out.mat <- Read10X(cellranger.out)
+  cds <- CreateSeuratObject(out.mat)
+  print(head(colnames(cds)))
+  cells.list[[basename(i)]] <- colnames(cds)
+  rm("cds")
+}
+```
+```{r}
+res.mat <- matrix(nrow = length(cells.list), ncol = length(cells.list), dimnames = list(names(cells.list), names(cells.list)))
+for (i in names(cells.list)) {
+  for (j in names(cells.list)) {
+    res.mat[i,j] <- round(length(intersect(cells.list[[i]], cells.list[[j]]))/length(cells.list[[i]]), digits = 3)
+  }
+}
+```
+
+```{r}
+library(pheatmap)
+pheatmap::pheatmap(res.mat,
+                  cluster_rows = FALSE,
+                  cluster_cols = FALSE)
+```
+

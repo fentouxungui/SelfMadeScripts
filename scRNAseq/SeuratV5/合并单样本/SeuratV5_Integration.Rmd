@@ -32,7 +32,7 @@ knitr::opts_chunk$set(
 ```
 
 ```{r init}
-.libPaths("/data0/reference/software/miniconda-envs/seuratV5/lib/R/library")
+# conda activate /home/xilab/software/miniconda-envs/seurat-latest # in shell
 library(Seurat)
 library(SeuratData)
 library(SeuratWrappers)
@@ -40,7 +40,8 @@ library(SeuratWrappers)
 library(clustree)
 library(ggplot2)
 library(patchwork)
-options(future.globals.maxSize = 1e9)
+library(qs2)
+options(future.globals.maxSize = 10 * 1024 ^ 3) # max 10GB
 ```
 
 ## Introduction
@@ -115,35 +116,35 @@ You can find more detail on each method, and any installation prerequisites, in 
 
 Each of the following lines perform a new integration using a single line of code:
 
-```{r integratelayerscca, results='hide'}
+```{r integratelayerscca}
 obj <- IntegrateLayers(
   object = obj, method = CCAIntegration,
   orig.reduction = "pca", new.reduction = 'integrated.cca',
   verbose = FALSE)
 ```
 
-```{r integratelayersrpca, results='hide'}
+```{r integratelayersrpca}
 obj <- IntegrateLayers(
   object = obj, method = RPCAIntegration,
   orig.reduction = "pca", new.reduction = 'integrated.rpca',
   verbose = FALSE)
 ```
 
-```{r integratelayersharmony, results='hide'}
+```{r integratelayersharmony}
 obj <- IntegrateLayers(
   object = obj, method = HarmonyIntegration,
   orig.reduction = "pca", new.reduction = 'harmony',
   verbose = FALSE)
 ```
 
-```{r integratelayersfastmnn, results='hide'}
+```{r integratelayersfastmnn}
 obj <- IntegrateLayers(
   object = obj, method = FastMNNIntegration,
   new.reduction = 'integrated.mnn',
   verbose = FALSE)
 ```
 
-```{r integratelayersscvi, eval=FALSE, results='hide'}
+```{r integratelayersscvi}
 obj <- IntegrateLayers(
   object = obj, method = "scVIIntegration",
   groups = "orig.ident",
@@ -242,7 +243,8 @@ Lastly, users can also perform integration using sctransform-normalized data (se
 ```
 
 ```{r}
-saveRDS(obj, file = "merged.rds")
+# saveRDS(obj, file = "merged.rds")
+qs_save(obj, 'merged.qs2')
 ```
 
 <details>

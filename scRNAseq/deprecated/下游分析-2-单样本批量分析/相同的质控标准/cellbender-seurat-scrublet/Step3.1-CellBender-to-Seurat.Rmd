@@ -1,0 +1,267 @@
+---
+title: "Step3.1-CellBender-to-Seurat"
+author: "Zhang Yongchao"
+date: "February 26, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Seurat - Guided Clustering Tutorial
+
+see: https://satijalab.org/seurat/v3.1/pbmc3k_tutorial.html
+
+```{r}
+suppressMessages(library(dplyr)) 
+suppressMessages(library(Seurat))
+suppressMessages(library(patchwork))
+library(ggplot2)
+library(Matrix)
+library(clustree)
+
+ReadCB_h5 <- function(filename, use.names = TRUE, unique.features = TRUE) {
+  if (!requireNamespace('hdf5r', quietly = TRUE)) {
+    stop("Please install hdf5r to read HDF5 files")
+  }
+  if (!file.exists(filename)) {
+    stop("File not found")
+  }
+  infile <- hdf5r::H5File$new(filename = filename, mode = 'r')
+  genomes <- names(x = infile)
+  output <- list()
+  if (hdf5r::existsGroup(infile, 'matrix')) {
+    # cellranger version 3
+    message('CellRanger version 3+ format H5')
+    if (use.names) {
+      feature_slot <- 'features/name'
+    } else {
+      feature_slot <- 'features/id'
+    }
+  } else {
+    message('CellRanger version 2 format H5')
+    if (use.names) {
+      feature_slot <- 'gene_names'
+    } else {
+      feature_slot <- 'genes'
+    }
+  }
+  for (genome in genomes) {
+    counts <- infile[[paste0(genome, '/data')]]
+    indices <- infile[[paste0(genome, '/indices')]]
+    indptr <- infile[[paste0(genome, '/indptr')]]
+    shp <- infile[[paste0(genome, '/shape')]]
+    features <- infile[[paste0(genome, '/', feature_slot)]][]
+    barcodes <- infile[[paste0(genome, '/barcodes')]]
+    sparse.mat <- sparseMatrix(
+      i = indices[] + 1,
+      p = indptr[],
+      x = as.numeric(x = counts[]),
+      dims = shp[],
+      giveCsparse = FALSE
+    )
+    if (unique.features) {
+      features <- make.unique(names = features)
+    }
+    rownames(x = sparse.mat) <- features
+    colnames(x = sparse.mat) <- barcodes[]
+    sparse.mat <- as(object = sparse.mat, Class = 'dgCMatrix')
+    # Split v3 multimodal
+    if (infile$exists(name = paste0(genome, '/features'))) {
+      types <- infile[[paste0(genome, '/features/feature_type')]][]
+      types.unique <- unique(x = types)
+      if (length(x = types.unique) > 1) {
+        message("Genome ", genome, " has multiple modalities, returning a list of matrices for this genome")
+        sparse.mat <- sapply(
+          X = types.unique,
+          FUN = function(x) {
+            return(sparse.mat[which(x = types == x), ])
+          },
+          simplify = FALSE,
+          USE.NAMES = TRUE
+        )
+      }
+    }
+    output[[genome]] <- sparse.mat
+  }
+  infile$close_all()
+  if (length(x = output) == 1) {
+    return(output[[genome]])
+  } else{
+    return(output)
+  }
+}
+```
+
+
+
+## import data
+
+```{r}
+cellbender.outputs <- grep("cellbender.output_filtered.h5",list.files("../../../Cellranger-Outputs/",recursive = TRUE,full.names = TRUE),value = TRUE)
+cellbender.outputs
+```
+
+```{r}
+obj.list <- lapply(cellbender.outputs,function(x){
+  project.name <- basename(gsub("/outs/cellbender.output_filtered.h5","",x))
+  message("**** Processing sample: ",project.name)
+  
+  cellbender_mat <- ReadCB_h5(x)
+  seurat.obj <- CreateSeuratObject(counts = cellbender_mat, project = project.name)
+  message("Done!")
+  return(seurat.obj)
+})
+obj.list
+```
+
+CellBender will generate zero count cells, so firstly remove those cells with zero UMI counts
+
+```{r}
+obj.list <- lapply(obj.list, function(pbmc){
+  message("* Processing sample: ", pbmc@project.name)
+  # print(table(pbmc[["nCount_RNA"]] == 0))
+  message(sum(pbmc[["nCount_RNA"]] == 0)," cells will be removed for zero UMI counst!")
+  pbmc <-  subset(pbmc, subset = nCount_RNA > 0)
+  return(pbmc)
+})
+```
+
+
+## QC
+
+```{r}
+obj.list <- lapply(obj.list, function(pbmc){
+  message("* Processing sample: ",pbmc@project.name)
+  pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, pattern = "^mt-")
+  pbmc[["UMI.Non.mt"]] <- pbmc[["nCount_RNA"]]*(1-pbmc[["percent.mt"]]/100)
+  return(pbmc)
+})
+```
+
+```{r fig.width=5,fig.height=16}
+# my own code for plots
+# features <- c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt")
+# y.max = c(10000,1.5e5,100,1e5)
+# for (i in 1:length(features)) {
+#   VlnPlot.list <- lapply(obj.list, function(pbmc){ VlnPlot(pbmc, features = features[i], pt.size = 0.001,y.max = y.max[i], combine = FALSE) })
+#   Aplot <- lapply(VlnPlot.list,function(x){ return(x[[1]] + NoLegend() + labs(x = "") + ggtitle("") + theme(axis.text.x = element_text(angle = 0,hjust = 0.5))) })
+#   print(wrap_plots(Aplot,ncol = length(Aplot)) + plot_annotation(title = features[i],  theme = theme(plot.title = element_text(size = 18))))
+# }
+
+raw.merged <- merge(obj.list[[1]],obj.list[-1])
+table(raw.merged@meta.data$orig.ident)
+VlnPlot(raw.merged,features = c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt"), ncol = 1,pt.size = 0.001)
+VlnPlot(raw.merged,features = c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt"), ncol = 1,pt.size = 0)
+```
+
+
+```{r}
+hist(raw.merged@meta.data$nCount_RNA,breaks = 300,xlim = c(0,70000))
+hist(raw.merged@meta.data$UMI.Non.mt,breaks = 300,xlim = c(0,20000))
+hist(raw.merged@meta.data$nFeature_RNA,breaks = 70,xlim = c(0,9000))
+hist(raw.merged@meta.data$nFeature_RNA,breaks = 100,xlim = c(0,1000))
+hist(raw.merged@meta.data$percent.mt,breaks = 60)
+```
+```{r}
+# obj.list <- lapply(obj.list,function(x){
+#   print(paste("*Processing sample: ",x@project.name,sep = ""))
+#   if(grepl("(Epi)|(CD326)",x@project.name)){
+#     x <- subset(x, subset = nCount_RNA < 1e5 & nFeature_RNA > 700 & percent.mt < 80 & nCount_RNA > 4000)
+#   }else{
+#      x <- subset(x, subset = nCount_RNA < 100000 & nFeature_RNA > 700 & percent.mt < 20 & nCount_RNA > 4000)
+#   }
+#   return(x)
+# })
+
+obj.list <- lapply(obj.list,function(x){
+  print(paste("*Processing sample: ",x@project.name,sep = ""))
+  x <- subset(x, subset = nCount_RNA < 1e5 & nFeature_RNA > 700 & percent.mt < 20 & nCount_RNA > 3000)
+  return(x)
+})
+```
+
+```{r fig.height=12,fig.width=4}
+clean.merged <- merge(obj.list[[1]],obj.list[-1])
+table(clean.merged@meta.data$orig.ident)
+VlnPlot(clean.merged,features = c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt"), ncol = 1,pt.size = 0.001)
+VlnPlot(clean.merged,features = c("nFeature_RNA", "nCount_RNA", "percent.mt","UMI.Non.mt"), ncol = 1,pt.size = 0)
+```
+
+```{r}
+hist(clean.merged@meta.data$nCount_RNA,breaks = 300,xlim = c(0,70000))
+hist(clean.merged@meta.data$UMI.Non.mt,breaks = 300,xlim = c(0,20000))
+hist(clean.merged@meta.data$nFeature_RNA,breaks = 70,xlim = c(0,9000))
+hist(clean.merged@meta.data$nFeature_RNA,breaks = 100,xlim = c(0,1000))
+hist(clean.merged@meta.data$percent.mt,breaks = 60)
+```
+```{r fig.width=12,fig.height=6}
+lapply(obj.list, function(x){
+  print(paste("*Processing sample: ",x@project.name,sep = ""))
+  plot1 <- FeatureScatter(x, feature1 = "nCount_RNA", feature2 = "percent.mt")
+  plot2 <- FeatureScatter(x, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+  print(plot1 + plot2)
+  return(NULL)
+})
+```
+
+
+## Normalizing the data
+
+```{r}
+
+obj.list <- lapply(obj.list, function(x){
+  print(paste("*Processing sample: ",x@project.name,sep = ""))
+  x <- NormalizeData(x, normalization.method = "LogNormalize", scale.factor = 10000)
+  x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 3000)
+  s.genes <- readRDS("/data2/shared_data_backup/zhugl/scRNAseq-mouse-Intestine/Downstream-Analysis/Total-Embryo-SI-Sample/mouse.s.genes.rds")
+  g2m.genes <- readRDS("/data2/shared_data_backup/zhugl/scRNAseq-mouse-Intestine/Downstream-Analysis/Total-Embryo-SI-Sample/mouse.g2m.genes.rds")
+  x <- CellCycleScoring(x, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+  # all.genes <- rownames(x) # not dessary using all genes
+  x <- ScaleData(x, vars.to.regress = c("percent.mt","nCount_RNA","S.Score", "G2M.Score"))
+  x <- RunPCA(x, features = VariableFeatures(x))
+  x <- RunUMAP(x, dims = 1:20)
+  x <- RunTSNE(x, dims = 1:20)
+  x <- FindNeighbors(x, dims = 1:20) %>% FindClusters(resolution = c(0.2,0.4,0.6,0.8,1.0,1.2,1.4,1.6))
+  Idents(x) <- "RNA_snn_res.0.6"
+  return(x)
+})
+```
+
+
+```{r fig.width=8,fig.height=8}
+lapply(obj.list, function(x){
+  print(paste("*Processing sample: ",x@project.name,sep = ""))
+  print(clustree(x@meta.data, prefix = "RNA_snn_res."))
+  return(NULL)
+})
+```
+
+
+```{r fig.width=6,fig.height=6}
+lapply(obj.list, function(x){
+  print(paste("*Processing sample: ",x@project.name,sep = ""))
+  print(DimPlot(x, reduction = "umap",label = TRUE))
+  print(DimPlot(x, reduction = "tsne",label = TRUE))
+  return(NULL)
+})
+```
+
+```{r fig.width=12,fig.height=4}
+lapply(obj.list,function(x){
+  print(paste("*Processing sample: ",x@project.name,sep = ""))
+  print(FeaturePlot(x,features = c("Ptprc","Epcam","Pdgfra"),label = TRUE,ncol = 3))
+  print(FeaturePlot(x,features = c("nFeature_RNA", "nCount_RNA", "percent.mt"),label = TRUE,ncol = 3))
+  return(NULL)
+})
+```
+
+```{r}
+lapply(obj.list, function(x){
+  print(paste("*Processing sample: ",x@project.name,sep = ""))
+  sampleName <- paste(x@project.name,".rds",sep = "")
+  saveRDS(x,file = sampleName)
+  return(NULL)
+})
+```

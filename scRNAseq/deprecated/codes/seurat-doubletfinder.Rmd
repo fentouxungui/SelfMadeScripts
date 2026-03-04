@@ -1,0 +1,93 @@
+---
+title: "seurat-doubletfinder"
+author: "Zhang Yongchao"
+date: "February 23, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Seurat)
+library(DoubletFinder)
+```
+
+
+```{r}
+cds <- readRDS("../../PH3-CD326.rds")
+DimPlot(cds,label = TRUE)
+```
+
+```{r}
+sweep.res.list <- paramSweep_v3(cds, PCs = 1:10, sct = FALSE)
+sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+bcmvn <- find.pK(sweep.stats)
+```
+```{r}
+# pK
+pK <- as.numeric(as.character(bcmvn$pK[which.max(bcmvn$BCmetric)]))
+# pN
+library(dplyr)
+bc.filtered <- filter(sweep.stats,pK == bcmvn$pK[which.max(bcmvn$BCmetric)])
+pN <- as.numeric(as.character(bc.filtered$pN[which.max(bc.filtered$BCreal)]))
+print(pK)
+print(pN)
+```
+
+> [How to determine the number of real doublet #28](https://github.com/chris-mcginnis-ucsf/DoubletFinder/issues/28)
+With all of that being said, the Scrublet authors show that their method is amenable to real doublet number estimates. So I would advise testing out their Scrublet if you want to have more confidence in this threshold. Notably, you could use the Scrublet-defined threshold in a DoubletFinder workflow.
+
+>[Which value is the cell loading density value?]()
+According to the 10x protocol, this means you should expect about a 3.5% doublet rate.
+
+
+```{r}
+annotations <- cds@meta.data$RNA_snn_res.0.5
+homotypic.prop <- modelHomotypic(annotations)           ## ex: annotations <- cds@meta.data$ClusteringResults
+nExp_poi <- round(0.035*nrow(cds@meta.data))  ## Assuming 3.5% doublet formation rate - tailor for your dataset
+# Scrublet-defined threshold in a DoubletFinder workflow
+nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+nExp_poi;nExp_poi.adj
+```
+```{r}
+if (nExp_poi != nExp_poi.adj) {
+  ## Run DoubletFinder with varying classification stringencies ----------------------------------------------------------------
+  cds <- doubletFinder_v3(cds, PCs = 1:10, pN = pN, pK = pK, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
+  cds <- doubletFinder_v3(cds, PCs = 1:10, pN = pN, pK = pK, nExp = nExp_poi.adj, reuse.pANN = grep("^pANN",colnames(cds@meta.data),value = TRUE), sct = FALSE)
+}else{
+  cds <- doubletFinder_v3(cds, PCs = 1:10, pN = pN, pK = pK, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
+}
+```
+
+```{r}
+if (nExp_poi != nExp_poi.adj) {
+  DimPlot(cds,group.by = grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1])
+  DimPlot(cds,group.by = grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[2])
+  cds[[grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1]]] <- factor(cds@meta.data[,grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1]])
+  cds[[grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[2]]] <- factor(cds@meta.data[,grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[2]])
+  VlnPlot(cds,features = c("nCount_RNA","nFeature_RNA","percent.mt","UMI.Non.mt"),ncol = 4,group.by = grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1],pt.size = 0.01)
+  VlnPlot(cds,features = c("nCount_RNA","nFeature_RNA","percent.mt","UMI.Non.mt"),ncol = 4,group.by = grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[2],pt.size = 0.01)
+}else{
+  DimPlot(cds,group.by = grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1])
+  cds[[grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1]]] <- factor(cds@meta.data[,grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1]])
+  VlnPlot(cds,features = c("nCount_RNA","nFeature_RNA","percent.mt","UMI.Non.mt"),ncol = 4,group.by = grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1],pt.size = 0.01)
+}
+```
+```{r fig.width=20,fig.height=5}
+FeaturePlot(cds,features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "UMI.Non.mt"),ncol = 4,label = TRUE)
+```
+
+```{r fig.width=15,fig.height=5}
+p1 <- DimPlot(cds,label = TRUE)
+p2 <- DimPlot(cds,label = TRUE,cells = rownames(cds@meta.data[cds@meta.data[,grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1]] == "Singlet",]))
+p3 <- DimPlot(cds,label = TRUE,cells = rownames(cds@meta.data[cds@meta.data[,grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1]] != "Singlet",]))
+p1 + p2 + p3
+```
+```{r fig.width=15,fig.height=5}
+p1 <- DimPlot(cds,label = TRUE,reduction = "tsne")
+p2 <- DimPlot(cds,label = TRUE,cells = rownames(cds@meta.data[cds@meta.data[,grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1]] == "Singlet",]),reduction = "tsne")
+p3 <- DimPlot(cds,label = TRUE,cells = rownames(cds@meta.data[cds@meta.data[,grep("^DF.classifications",colnames(cds@meta.data),value = TRUE)[1]] != "Singlet",]),reduction = "tsne")
+p1 + p2 + p3
+```

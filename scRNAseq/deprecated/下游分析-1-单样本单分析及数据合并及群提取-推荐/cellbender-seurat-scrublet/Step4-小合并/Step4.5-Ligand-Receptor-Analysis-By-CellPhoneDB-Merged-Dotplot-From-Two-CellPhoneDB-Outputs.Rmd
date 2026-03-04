@@ -1,0 +1,252 @@
+---
+title: "Merged-Dotplot"
+author: "Zhang Yongchao"
+date: "December 30, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = -1,message = -1)
+```
+```{r}
+library(ggplot2)
+library(reshape2)
+```
+
+
+```{r}
+prepare.data <- function(selected_rows = NULL,
+                         selected_columns = NULL,
+                         means_path = './means.txt',
+                         pvalues_path = './pvalues.txt',
+                         means_separator = '\t',
+                         pvalues_separator = '\t',
+                         type = ""
+){
+  all_pval = read.table(pvalues_path, header=T, stringsAsFactors = F, sep=means_separator, comment.char = '', check.names=F)
+  all_means = read.table(means_path, header=T, stringsAsFactors = F, sep=pvalues_separator, comment.char = '', check.names=F)
+  
+  intr_pairs = all_pval$interacting_pair
+  all_pval = all_pval[,-c(1:11)]
+  all_means = all_means[,-c(1:11)]
+  
+  if(is.null(selected_rows)){
+    selected_rows = intr_pairs
+  }
+  
+  if(is.null(selected_columns)){
+    selected_columns = colnames(all_pval)
+  }
+  
+  sel_pval = all_pval[match(selected_rows, intr_pairs), selected_columns]
+  sel_means = all_means[match(selected_rows, intr_pairs), selected_columns]
+  
+  df_names = expand.grid(selected_rows, selected_columns)
+  pval = unlist(sel_pval)
+  pval[pval==0] = 0.0009
+  plot.data = cbind(df_names,pval)
+  pr = unlist(as.data.frame(sel_means))
+  #pr[pr==0] = 1 # why not 0.01
+  pr[pr==0] = ifelse (min(pr) < 0.01,min(pr),0.01) 
+  plot.data = cbind(plot.data,log2(pr))
+  colnames(plot.data) = c('pair', 'clusters', 'pvalue', 'mean')
+  plot.data$type = type
+  return(plot.data)
+}
+```
+
+
+
+```{r}
+Para.mean <- read.delim("../ParaCells/means.txt",stringsAsFactors = FALSE)
+Para.pvalue <- read.delim("../ParaCells/pvalues.txt",stringsAsFactors = FALSE)
+Tumor.mean <- read.delim("../TumorCells/means.txt",stringsAsFactors = FALSE)
+Tumor.pvalue <- read.delim("../TumorCells/pvalues.txt",stringsAsFactors = FALSE)
+```
+
+```{r}
+# shared WNT pairs
+keyword <- "WNT"
+Para.selected <- Para.mean$interacting_pair[grepl(keyword,Para.mean$interacting_pair)]
+Tumor.selected <- Tumor.mean$interacting_pair[grepl(keyword,Tumor.mean$interacting_pair)]
+#Pairs.seleted <- intersect(Para.selected,Tumor.selected)
+Pairs.seleted <- union(Para.selected,Tumor.selected)
+# Attention
+# Para specific LR-pairs
+Para.selected[!Para.selected %in% Pairs.seleted]
+# Tumor specific LR-pairs
+Tumor.selected[!Tumor.selected %in% Pairs.seleted]
+
+
+
+# select cluster
+ClusterPair.selected <- gsub(".","|",grep("hEpi",colnames(Para.mean),value = TRUE),fixed = TRUE)
+```
+
+```{r}
+Para.Plot.data <- prepare.data(selected_rows = Pairs.seleted,
+                               selected_columns = ClusterPair.selected,
+                               means_path = '../ParaCells/means.txt',
+                               pvalues_path = '../ParaCells/pvalues.txt',
+                               means_separator = '\t',
+                               pvalues_separator = '\t',
+                               type = "    Para"
+                    
+)
+Tumor.Plot.data <- prepare.data(selected_rows = Pairs.seleted,
+                               selected_columns = ClusterPair.selected,
+                               means_path = '../TumorCells/means.txt',
+                               pvalues_path = '../TumorCells/pvalues.txt',
+                               means_separator = '\t',
+                               pvalues_separator = '\t',
+                               type = " Tumor"
+                    
+)
+plot.data <- rbind(Para.Plot.data,Tumor.Plot.data)
+plot.data$clusters <- factor(plot.data$clusters,levels = c("hEndo|hEpi","hFibro|hEpi","hGlial|hEpi","hImmune|hEpi","hPeri|hEpi","hEpi|hEpi","hEpi|hEndo","hEpi|hFibro","hEpi|hGlial", "hEpi|hImmune","hEpi|hPeri"))
+```
+
+```{r fig.width=10,fig.height=8}
+my_palette <- colorRampPalette(c("black", "blue", "yellow", "red"), alpha=TRUE)(n=399)
+
+ggplot(plot.data,aes(x=pair,y=clusters)) +
+  geom_point(aes(size=-log10(pvalue),color=mean)) +
+  scale_color_gradientn('Log2 mean (Molecule 1, Molecule 2)', colors=my_palette) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text=element_text(size=14, colour = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.text.y = element_text(size=12, colour = "black"),
+        axis.title=element_blank(),
+        legend.position = "bottom",
+        panel.border = element_rect(size = 0.7, linetype = "solid", colour = "black")) +
+  facet_grid("type")
+    
+```
+
+
+```{r fig.width=16,fig.height=6}
+plot.data$order <- paste(plot.data$pair,plot.data$type,sep = "   |")
+ggplot(plot.data,aes(x=order,y=clusters)) +
+  geom_point(aes(size=-log10(pvalue),color=mean)) +
+  scale_color_gradientn('Log2 mean (Molecule 1, Molecule 2)', colors=my_palette) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major = element_blank(),
+        axis.text=element_text(size=14, colour = "black"),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.text.y = element_text(size=12, colour = "black"),
+        axis.title=element_blank(),
+        legend.position = "bottom",
+        panel.border = element_rect(size = 0.7, linetype = "solid", colour = "black"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# all(colnames(Para.mean) == colnames(Para.pvalue))
+# all(Para.mean$id_cp_interaction == Para.pvalue$id_cp_interaction)
+# all(Tumor.mean$id_cp_interaction == Tumor.pvalue$id_cp_interaction)
+# all(Para.mean$id_cp_interaction == Tumor.pvalue$id_cp_interaction)
+```
+
+```{r}
+# # subset by cluster
+# cluster.key <- "hEpi"
+# data.names <- c("Para.mean","Para.pvalue","Tumor.mean","Tumor.pvalue")
+# for (data.name in data.names ) {
+#   tmp.data <- get(data.name)
+#   index <- grepl(cluster.key,colnames(tmp.data))
+#   index[1:11] <- TRUE
+#   assign(data.name,tmp.data[,index])
+# }
+```
+
+
+```{r}
+# # shared WNT pairs
+# keyword <- "(WNT)|(BMP)"
+# Para.selected <- Para.mean$id_cp_interaction[grepl(keyword,Para.mean$interacting_pair)]
+# Tumor.selected <- Tumor.mean$id_cp_interaction[grepl(keyword,Tumor.mean$interacting_pair)]
+# Pairs.seleted <- intersect(Para.selected,Tumor.selected)
+
+# # filter by max mean expr > 0.1
+# Para.mean.selected <- Para.mean[Para.mean$id_cp_interaction %in% Pairs.seleted,]
+# Para.selected.filtered <- Para.mean.selected$id_cp_interaction[apply(Para.mean.selected[,12:length(colnames(Para.mean.selected))],1,max) > 0.1]
+# Tumor.mean.selected <- Tumor.mean[Tumor.mean$id_cp_interaction %in% Pairs.seleted,]
+# Tumor.selected.filtered <- Tumor.mean.selected$id_cp_interaction[apply(Tumor.mean.selected[,12:length(colnames(Tumor.mean.selected))],1,max) > 0.1]
+# Pairs.mean.seleted.final <- union(Para.selected.filtered,Tumor.selected.filtered)
+# 
+# # filter by max pvalue expr < 0.01
+# Para.pvalue.selected <- Para.pvalue[Para.pvalue$id_cp_interaction %in% Pairs.seleted,]
+# Para.selected.filtered <- Para.pvalue.selected$id_cp_interaction[apply(Para.pvalue.selected[,12:length(colnames(Para.pvalue.selected))],1,min) < 0.01]
+# Tumor.pvalue.selected <- Tumor.pvalue[Tumor.pvalue$id_cp_interaction %in% Pairs.seleted,]
+# Tumor.selected.filtered <- Tumor.pvalue.selected$id_cp_interaction[apply(Tumor.pvalue.selected[,12:length(colnames(Tumor.pvalue.selected))],1,min) < 0.01]
+# Pairs.pvalue.seleted.final <- union(Para.selected.filtered,Tumor.selected.filtered)
+# 
+# Pairs.seleted.final <- intersect(Pairs.mean.seleted.final,Pairs.pvalue.seleted.final)
+```
+
+```{r}
+# # filter by LR-Pairs
+# data.names <- c("Para.mean","Para.pvalue","Tumor.mean","Tumor.pvalue")
+# for (data.name in data.names ) {
+#   tmp.data <- get(data.name)
+#   assign(data.name,tmp.data[tmp.data$id_cp_interaction %in% Pairs.seleted.final,])
+# }
+```
+
+```{r}
+# Para.mean.melt <- melt(Para.mean,id.vars = colnames(Para.mean)[1:11],value.name = "mean")
+# Para.pvalue.melt <- melt(Para.pvalue,id.vars = colnames(Para.pvalue)[1:11],value.name = "pvalue")
+# all(Para.mean.melt$id_cp_interaction == Para.pvalue.melt$id_cp_interaction)
+# all(Para.mean.melt$variable== Para.pvalue.melt$variable)
+# Para.mean.melt$pvalue <- Para.pvalue.melt$pvalue
+# Para.data <- Para.mean.melt
+# Para.data$type <- "Para"
+```
+```{r}
+# Tumor.mean.melt <- melt(Tumor.mean,id.vars = colnames(Tumor.mean)[1:11],value.name = "mean")
+# Tumor.pvalue.melt <- melt(Tumor.pvalue,id.vars = colnames(Tumor.pvalue)[1:11],value.name = "pvalue")
+# all(Tumor.mean.melt$id_cp_interaction == Tumor.pvalue.melt$id_cp_interaction)
+# all(Tumor.mean.melt$variable== Tumor.pvalue.melt$variable)
+# Tumor.mean.melt$pvalue <- Tumor.pvalue.melt$pvalue
+# Tumor.data <- Tumor.mean.melt
+# Tumor.data$type <- "Tumor"
+```
+```{r}
+# plot.data <- rbind(Para.data,Tumor.data)
+```
+
+
+```{r fig.width=16,fig.height=10}
+# my_palette <- colorRampPalette(c("black", "blue", "yellow", "red"), alpha=TRUE)(n=399)
+# 
+# ggplot(plot.data,aes(x=interacting_pair,y=variable)) +
+#   geom_point(aes(size=-log10(pvalue),color=mean)) +
+#   scale_color_gradientn('Log2 mean (Molecule 1, Molecule 2)', colors=my_palette) +
+#   theme_bw() +
+#   theme(panel.grid.minor = element_blank(),
+#         panel.grid.major = element_blank(),
+#         axis.text=element_text(size=14, colour = "black"),
+#         axis.text.x = element_text(angle = 90, hjust = 1),
+#         axis.text.y = element_text(size=12, colour = "black"),
+#         axis.title=element_blank(),
+#         legend.position = "bottom",
+#         panel.border = element_rect(size = 0.7, linetype = "solid", colour = "black")) +
+#   facet_grid("type")
+    
+```
+

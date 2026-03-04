@@ -31,6 +31,7 @@ options(warn =-1)
 species <- "drosophlia" # or human, mouse
 control <- "N1099G"
 case <- "HNF4OE"
+ntop <- 3000 # number of top genes for plotPCA
 ```
 
 ```{r}
@@ -56,6 +57,7 @@ suppressMessages(library(pheatmap))
 suppressMessages(library(RColorBrewer))
 suppressMessages(library(dplyr))
 suppressMessages(library(clusterProfiler))
+suppressMessages(library(ggrepel))
 switch (species,
   drosophlia = suppressMessages(library(org.Dm.eg.db)),
   human = suppressMessages(library(org.Hs.eg.db)),
@@ -220,12 +222,13 @@ write.table(x = as.data.frame(results_sig),
 ddsMat_rlog <- rlog(ddsMat, blind = FALSE)
 
 # Plot PCA by column variable
-plotPCA(ddsMat_rlog, intgroup = "Group", ntop = 500) +
+plotPCA(ddsMat_rlog, intgroup = "Group", ntop = ntop) +
   theme_bw() + # remove default ggplot2 theme
   geom_point(size = 5) + # Increase point size
   #scale_y_continuous(limits = c(-20, 20)) + # change limits to fix figure dimensions
   ggtitle(label = "Principal Component Analysis (PCA)", 
-          subtitle = "Top 500 most variable genes") 
+          subtitle = paste0("Top ", ntop," most variable genes")) +
+  geom_label_repel(aes(label = Group), max.overlaps = 30)
 ```
 
 ### 9b. Heatmap

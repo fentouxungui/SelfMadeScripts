@@ -1,0 +1,61 @@
+---
+title: "Step4.5 Ligand Receptor Analysis By CellPhoneDB"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+  warning = FALSE,
+  collapse = TRUE,
+  fig.align = "center")
+```
+
+```{r}
+Rds.dir <- "./4.1-Replicates-Merged-Cells-Rds"
+Results.dir <- "./4.5-Ligand-Receptor-Analysis/CellPhoneDB"
+```
+
+```{r}
+suppressMessages(library(Seurat))
+```
+
+# import data
+
+```{r}
+rds.file <- list.files(Rds.dir,pattern = ".rds$",full.names = TRUE)
+cds <- readRDS(rds.file)
+cds
+```
+
+# export data
+
+```{r}
+if ( !dir.exists(Results.dir)) {
+  dir.create(Results.dir, recursive = TRUE)
+}
+
+nor.umi <- as.matrix(cds@assays$CellBender@data)
+sample.meta <- data.frame(Cell = colnames(cds), cell_type = cds@meta.data$CellBender_snn_res.0.6)
+
+write.table(sample.meta, file = paste0(Results.dir, "/cell.meta.txt"), quote = FALSE, row.names = FALSE, sep = "\t")
+write.table(nor.umi, file = paste0(Results.dir, "/normalized.UMI.txt"), quote = FALSE, row.names = FALSE, sep = "\t")
+```
+
+# Prepare the loom file and Run scVelo
+
+```{bash}
+sh Step4.5-Run-CellPhoneDB.sh
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

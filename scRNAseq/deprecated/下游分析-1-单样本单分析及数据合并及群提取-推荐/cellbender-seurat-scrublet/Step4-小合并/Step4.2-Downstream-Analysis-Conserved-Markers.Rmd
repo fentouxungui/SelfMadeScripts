@@ -1,0 +1,87 @@
+---
+title: "Step4.2 Downstream Analysis"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+**Parameters:**
+
+```{r}
+Rds.dir <- "./4.1-Replicates-Merged-Cells-Rds"
+Results.dir <- "./4.2-Downstream-Analysis"
+Resolution <- "0.6"
+Group.by <- "organ"
+```
+
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(dplyr))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(pheatmap))
+```
+
+```{r fig.width=6,fig.height=6}
+cds <- readRDS(list.files(Rds.dir,pattern = "rds$",full.names = TRUE))
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.",Resolution,sep = "")
+Idents(cds) <- cluster.resolution
+DimPlot(cds,label = TRUE) + NoLegend()
+```
+
+# Find Conserved Cluster Markers
+
+```{r}
+save.dir <- paste(Results.dir,"/","Conserved-Markers",sep = "")
+if(!dir.exists(save.dir)){dir.create(save.dir)}
+cell.numbers <- as.data.frame.matrix( (table(cds@active.ident,cds@meta.data[,Group.by])))
+for (i in levels(cds@active.ident)) {
+  if (any(unname(unlist(cell.numbers[as.character(i),])) < 3) ) {
+    message("cluster-",i," is escaped for less than 3 cells!")
+    next()
+  }else{
+    cds.markers <- FindConservedMarkers(cds, ident.1 = i, only.pos = TRUE, grouping.var = Group.by)
+    write.csv(cds.markers,file = paste0(save.dir, "/Conserved-Markers-of-cluster-",i,".csv"))
+  }
+}
+
+```
+
+# Heatmap of top 10 markers
+
+```{r fig.height=18,fig.width=20}
+# top10 <- cds.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+# DoHeatmap(cds, features = top10$gene) + NoLegend()
+```
+
+# Dotplot of top 3 markers
+
+```{r fig.width=21,fig.height=18}
+# DefaultAssay(cds) <- "RNA"
+# cds <- NormalizeData(cds,assay = DefaultAssay(cds))
+# DefaultAssay(cds) <- "CellBender"
+# 
+# top3 <- cds.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_logFC)
+# p1 <- DotPlot(cds,features = unique(top3$gene), group.by = cluster.resolution, assay = "CellBender") + RotatedAxis()
+# p2 <- DotPlot(cds,features = unique(top3$gene), group.by = cluster.resolution, assay = "RNA") + RotatedAxis()
+# wrap_plots(p1,
+#            p2,ncol = 1)
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

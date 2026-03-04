@@ -1,0 +1,195 @@
+---
+title: "Step5.2 Downstream Analysis - Day Level"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+**Parameters:**
+
+```{r}
+Results.dir <- "./5.2-Downstream-Analysis/Day-Level"
+```
+
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(dplyr))
+suppressMessages(library(patchwork))
+suppressMessages(library(ggplot2))
+suppressMessages(library(pheatmap))
+```
+
+```{r fig.width=6,fig.height=6}
+cds <- readRDS(list.files("./5.1-Rds",pattern = "rds$",full.names = TRUE))
+cluster.resolution <- paste(DefaultAssay(cds),"_snn_res.0.6",sep = "")
+Idents(cds) <- cluster.resolution
+DimPlot(cds,label = TRUE) + NoLegend()
+```
+
+# Find Cluster Markers By Day
+
+```{r}
+save.dir <- paste(Results.dir,"/","Cluster-Markers",sep = "")
+if ( !dir.exists(save.dir)) {
+  dir.create(save.dir,recursive = TRUE)
+}
+save.file <- paste(save.dir,"/",basename(getwd()),".Cluster-Markers.By.Day.csv",sep = "")
+```
+
+```{r}
+Idents(cds) <- 'day'
+if (!file.exists(save.file)) {
+  cds.markers <- FindAllMarkers(cds, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+  write.csv(cds.markers,file = save.file)
+}else{
+  cds.markers <- read.csv(save.file,stringsAsFactors = FALSE,row.names = 1)
+}
+
+cds.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC)
+```
+
+# Heatmap of top 30 markers
+
+```{r fig.height=30,fig.width=20}
+top10 <- cds.markers %>% group_by(cluster) %>% top_n(n = 30, wt = avg_logFC)
+DoHeatmap(cds, features = top10$gene) + NoLegend()
+```
+
+# Dotplot of top 3 markers
+
+```{r fig.width=12,fig.height=8}
+DefaultAssay(cds) <- "RNA"
+cds <- NormalizeData(cds,assay = DefaultAssay(cds))
+DefaultAssay(cds) <- "CellBender"
+
+top3 <- cds.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_logFC)
+p1 <- DotPlot(cds,features = unique(top3$gene), assay = "CellBender") + RotatedAxis()
+p2 <- DotPlot(cds,features = unique(top3$gene), assay = "RNA") + RotatedAxis()
+wrap_plots(p1,
+           p2,ncol = 1)
+```
+
+# Cluster correlation
+
+```{r fig.height=6,fig.width=7}
+av.exp <- AverageExpression(cds)[[DefaultAssay(cds)]]
+cor.exp <- as.data.frame(cor(av.exp,method = "pearson"))
+pheatmap(cor.exp)
+cor.exp <- as.data.frame(cor(av.exp,method = "spearman"))
+pheatmap(cor.exp)
+```
+
+# GO and KEGG Analysis of the markers
+
+```{r}
+species <- "mouse" # or human, mouse
+kegg.organism <- switch(species,
+                        drosophlia = "dme",
+                        human = "hsa",
+                        mouse = "mmu")
+org.db <- switch(species,
+                 drosophlia = "org.Dm.eg.db",
+                 human = "org.Hs.eg.db",
+                 mouse = "org.Mm.eg.db")
+```
+
+
+```{r}
+suppressMessages(library(clusterProfiler))
+switch (species,
+  drosophlia = suppressMessages(library(org.Dm.eg.db)),
+  human = suppressMessages(library(org.Hs.eg.db)),
+  mouse = suppressMessages(library(org.Mm.eg.db))
+)
+suppressMessages(library(pathview))
+suppressMessages(library(filesstrings))
+```
+
+
+```{r}
+if (file.exists(save.file)) {
+  markers.df <- read.csv(save.file,stringsAsFactors = FALSE,row.names = 1)
+}else{
+  message("Please Run Find Markers first!")
+}
+table(markers.df$cluster)
+```
+
+```{r}
+for (i in levels(cds@meta.data$day)) {
+  print(paste("Processing: ",i,sep = ""))
+  markers.subset <- dplyr::filter(markers.df,cluster == i)
+  
+  # prepare for GO and KEGG
+  markers.subset$entrez <- mapIds(x = get(org.db),
+                     keys = markers.subset$gene,
+                     column = "ENTREZID",
+                     keytype = "SYMBOL",
+                     multiVals = "first")
+  # GO
+  GO.dir <-  paste(save.dir,"/GO",sep = "")
+  if ( !dir.exists(GO.dir) ) {
+      dir.create(GO.dir)
+  }
+  
+  
+  go_enrich <- enrichGO(gene = markers.subset$entrez,
+                            OrgDb = org.db, 
+                            readable = T,
+                            ont = "BP",
+                            pvalueCutoff = 0.05, 
+                            qvalueCutoff = 0.10)
+  # Plot results
+  if (!is.null(go_enrich)) {
+      print(barplot(go_enrich, 
+          drop = TRUE, 
+          showCategory = 30, 
+          title = paste("GO BP - ",i,sep = ""),
+          font.size = 8))
+          write.csv(go_enrich,file = paste(GO.dir,"/GO-Biological-Process-using-markers-of-",i,".csv",sep = ""))
+    }
+      
+  # KEGG
+  KEGG.dir <-paste(save.dir,"/KEGG",sep = "")
+   
+  if ( !dir.exists(KEGG.dir) ) {
+    dir.create(KEGG.dir)
+  }
+      
+
+  kegg_enrich <- enrichKEGG(gene =  markers.subset$entrez,
+                            keyType = "ncbi-geneid",
+                            organism = kegg.organism,
+                            pvalueCutoff = 0.05, 
+                            qvalueCutoff = 0.30)
+        
+  # Plot results
+  if (!is.null(kegg_enrich)) {
+    print(barplot(kegg_enrich, 
+          drop = TRUE, 
+          showCategory = 15, 
+          title =  paste("KEGG - ",i,sep = ""),
+          font.size = 8))
+  write.csv(kegg_enrich,file = paste(KEGG.dir,"/KEGG-Enrichment-Pathways-using-markers-of-",i,".csv",sep = ""))
+ }
+}
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+

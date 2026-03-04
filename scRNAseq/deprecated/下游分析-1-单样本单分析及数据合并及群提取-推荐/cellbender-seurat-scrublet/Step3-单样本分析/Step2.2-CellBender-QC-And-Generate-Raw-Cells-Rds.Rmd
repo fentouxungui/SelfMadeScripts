@@ -1,0 +1,259 @@
+---
+title: "Step2.2 CellBender QC And Generate Raw Cells Rds"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  collapse = TRUE,
+  fig.align = "center")
+```
+
+
+```{r}
+Results.dir <- "./2.2-Raw-Rds/"
+CellRanger.outputs.dir <- "../../../../CellRanger-Outputs/"
+```
+
+** cellbender outputs QC And Save Rds **
+
+1. shared cells.
+
+2. Most frequently revised genes.
+
+3. genes with top number of cells in which the UMI counts are revised to 0.
+
+4. Genes with top summed variation in all cells.
+
+```{r}
+library(Seurat)
+library(Matrix)
+library(VennDiagram)
+library(dplyr)
+```
+
+```{r echo=FALSE}
+ReadCB_h5 <- function(filename, use.names = TRUE, unique.features = TRUE) {
+  if (!requireNamespace('hdf5r', quietly = TRUE)) {
+    stop("Please install hdf5r to read HDF5 files")
+  }
+  if (!file.exists(filename)) {
+    stop("File not found")
+  }
+  infile <- hdf5r::H5File$new(filename = filename, mode = 'r')
+  genomes <- names(x = infile)
+  output <- list()
+  if (hdf5r::existsGroup(infile, 'matrix')) {
+    # cellranger version 3
+    message('CellRanger version 3+ format H5')
+    if (use.names) {
+      feature_slot <- 'features/name'
+    } else {
+      feature_slot <- 'features/id'
+    }
+  } else {
+    message('CellRanger version 2 format H5')
+    if (use.names) {
+      feature_slot <- 'gene_names'
+    } else {
+      feature_slot <- 'genes'
+    }
+  }
+  for (genome in genomes) {
+    counts <- infile[[paste0(genome, '/data')]]
+    indices <- infile[[paste0(genome, '/indices')]]
+    indptr <- infile[[paste0(genome, '/indptr')]]
+    shp <- infile[[paste0(genome, '/shape')]]
+    features <- infile[[paste0(genome, '/', feature_slot)]][]
+    barcodes <- infile[[paste0(genome, '/barcodes')]]
+    sparse.mat <- sparseMatrix(
+      i = indices[] + 1,
+      p = indptr[],
+      x = as.numeric(x = counts[]),
+      dims = shp[],
+      giveCsparse = FALSE
+    )
+    if (unique.features) {
+      features <- make.unique(names = features)
+    }
+    rownames(x = sparse.mat) <- features
+    colnames(x = sparse.mat) <- barcodes[]
+    sparse.mat <- as(object = sparse.mat, Class = 'dgCMatrix')
+    # Split v3 multimodal
+    if (infile$exists(name = paste0(genome, '/features'))) {
+      types <- infile[[paste0(genome, '/features/feature_type')]][]
+      types.unique <- unique(x = types)
+      if (length(x = types.unique) > 1) {
+        message("Genome ", genome, " has multiple modalities, returning a list of matrices for this genome")
+        sparse.mat <- sapply(
+          X = types.unique,
+          FUN = function(x) {
+            return(sparse.mat[which(x = types == x), ])
+          },
+          simplify = FALSE,
+          USE.NAMES = TRUE
+        )
+      }
+    }
+    output[[genome]] <- sparse.mat
+  }
+  infile$close_all()
+  if (length(x = output) == 1) {
+    return(output[[genome]])
+  } else{
+    return(output)
+  }
+}
+```
+
+# import data and create seurat object
+
+```{r}
+cellbender.outputs <- paste(CellRanger.outputs.dir,basename(getwd()),"/outs/cellbender.output_filtered.h5",sep = "")
+project.name <- basename(getwd())
+cellbender_mat <- ReadCB_h5(cellbender.outputs)
+colnames(cellbender_mat) <- gsub("-1$","",colnames(cellbender_mat))
+cds.cellbender <- CreateSeuratObject(counts = cellbender_mat, project = project.name)
+cds.cellbender
+```
+
+
+```{r}
+cellranger.outputs <- paste(CellRanger.outputs.dir,basename(getwd()),"/outs/filtered_feature_bc_matrix",sep = "")
+project.name <- basename(getwd())
+cellranger_mat <- Read10X(cellranger.outputs)
+cds.cellranger <- CreateSeuratObject(counts = cellranger_mat, project = project.name)
+cds.cellranger
+```
+
+# Check Cellbender and CellRanger results
+
+## check both have same features (rownames)
+
+```{r}
+all(rownames(cds.cellbender) == rownames(cds.cellranger))
+tail(sort(cds.cellbender@meta.data$nCount_RNA,decreasing = TRUE),100)
+```
+
+## Q1: what is the zero counts cells
+
+```{r}
+cell.zero <- colnames(cds.cellbender)[cds.cellbender@meta.data$nCount_RNA == 0]
+table(cell.zero %in% colnames(cds.cellranger))
+```
+
+those zero counts cells not exist in cellranger outputs.
+
+## Q2: What is the extra cells in cellbender
+
+```{r}
+head(cds.cellbender@meta.data[!colnames(cds.cellbender) %in% colnames(cds.cellranger),])
+```
+
+usually cells with low UMI counts and features.
+
+## Q3: Overlapped genes
+
+```{r fig.width=6,fig.height=6}
+T<-venn.diagram(list(CellBender=colnames(cds.cellbender),CellRanger=colnames(cds.cellranger)),filename=NULL
+                ,lwd=1,lty=2
+                ,col=c('red','green'),fill=c('red','green')
+                ,cat.col=c('red','green')
+                ,rotation.degree=0)
+grid.draw(T)
+```
+
+## Q4: What is the lost cells in CellRanger
+
+```{r}
+cds.cellranger@meta.data[!colnames(cds.cellranger) %in% colnames(cds.cellbender),]
+```
+
+Usually cells with low UMI counts!
+
+
+# UMI Counts Difference
+
+## cell level
+
+```{r fig.width=6,fig.height=6}
+shared.cells <- intersect(colnames(cds.cellbender),colnames(cds.cellranger))
+y = cds.cellbender@meta.data[shared.cells,"nCount_RNA"]
+x = cds.cellranger@meta.data[shared.cells,"nCount_RNA"]
+hist(x - y,xlim = c(0,max(x - y)),breaks = max(x - y))
+hist((x-y)/x, breaks = 50)
+plot(log10(x),x-y)
+```
+
+Is dead cells with low UMI counts and doulets with high UMI counts?
+
+## feature level
+
+```{r}
+mat.bender <- cellbender_mat[,shared.cells]
+mat.ranger <- cellranger_mat[,shared.cells]
+mat.dff <- as.matrix(mat.ranger - mat.bender)
+```
+
+### changed times
+
+```{r}
+change.times <- sort(apply(mat.dff > 0,1,sum),decreasing = TRUE)
+plot(1:length(change.times),log(change.times + 1))
+head(change.times,30) # cell numbers
+```
+
+### changed sum
+
+```{r}
+change.sum <- sort(apply(mat.dff,1,sum),decreasing = TRUE)
+plot(1:length(change.sum),log(change.sum + 1))
+head(change.sum,30) # UMIs
+```
+
+### changed mean
+
+```{r}
+change.mean <- sort(change.sum/change.times,decreasing = TRUE)
+plot(1:length(change.mean),change.mean )
+head(change.mean,30)
+# mean of genes with top 30 change sum
+change.mean[names(head(change.sum,30))]
+# mean of genes with top 30 change time
+change.mean[names(head(change.times,30))]
+```
+
+# save the shared cells
+
+>[Seurat3.0对象及其操作列表 - 多个assay的转换与操作](https://www.jianshu.com/p/b9078c71f057)
+
+```{r}
+cds <- subset(cds.cellranger,cells = shared.cells)
+cds$nCounts_Diff <-  (x - y)[match(colnames(cds),shared.cells)]
+cds$nCounts_Diff_percent <- ((x - y)[match(colnames(cds),shared.cells)])/x
+cds[["CellBender"]] <- CreateAssayObject(counts = cellbender_mat[,shared.cells])
+
+
+if ( !dir.exists(Results.dir)) {
+  dir.create(Results.dir)
+}
+
+saveRDS(cds,file = paste(Results.dir,basename(getwd()),".rds",sep = ""))
+write.csv(as.data.frame(change.sum),file = paste(Results.dir,"Genes-with-summed-revised-UMI-counts.csv",sep = ""))
+write.csv(as.data.frame(change.times),file = paste(Results.dir,"Genes-with-summed-revised-cells.csv",sep = ""))
+```
+
+
+# Session info
+
+```{r}
+sessionInfo()
+```

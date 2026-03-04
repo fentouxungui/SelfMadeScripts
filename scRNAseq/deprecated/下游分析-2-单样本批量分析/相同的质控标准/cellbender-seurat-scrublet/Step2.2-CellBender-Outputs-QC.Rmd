@@ -1,0 +1,244 @@
+---
+title: "Step2.2-CellBender-Outputs-QC"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE
+)
+```
+
+# evaluate cellbender outputs
+
+1. shared cells.
+
+2. Most frequently revised genes.
+
+3. genes with top number of cells in which the UMI counts are revised to 0.
+
+4. Genes with top summed variation in all cells.
+
+```{r}
+library(Seurat)
+library(Matrix)
+library(dplyr)
+
+ReadCB_h5 <- function(filename, use.names = TRUE, unique.features = TRUE) {
+  if (!requireNamespace('hdf5r', quietly = TRUE)) {
+    stop("Please install hdf5r to read HDF5 files")
+  }
+  if (!file.exists(filename)) {
+    stop("File not found")
+  }
+  infile <- hdf5r::H5File$new(filename = filename, mode = 'r')
+  genomes <- names(x = infile)
+  output <- list()
+  if (hdf5r::existsGroup(infile, 'matrix')) {
+    # cellranger version 3
+    message('CellRanger version 3+ format H5')
+    if (use.names) {
+      feature_slot <- 'features/name'
+    } else {
+      feature_slot <- 'features/id'
+    }
+  } else {
+    message('CellRanger version 2 format H5')
+    if (use.names) {
+      feature_slot <- 'gene_names'
+    } else {
+      feature_slot <- 'genes'
+    }
+  }
+  for (genome in genomes) {
+    counts <- infile[[paste0(genome, '/data')]]
+    indices <- infile[[paste0(genome, '/indices')]]
+    indptr <- infile[[paste0(genome, '/indptr')]]
+    shp <- infile[[paste0(genome, '/shape')]]
+    features <- infile[[paste0(genome, '/', feature_slot)]][]
+    barcodes <- infile[[paste0(genome, '/barcodes')]]
+    sparse.mat <- sparseMatrix(
+      i = indices[] + 1,
+      p = indptr[],
+      x = as.numeric(x = counts[]),
+      dims = shp[],
+      giveCsparse = FALSE
+    )
+    if (unique.features) {
+      features <- make.unique(names = features)
+    }
+    rownames(x = sparse.mat) <- features
+    colnames(x = sparse.mat) <- barcodes[]
+    sparse.mat <- as(object = sparse.mat, Class = 'dgCMatrix')
+    # Split v3 multimodal
+    if (infile$exists(name = paste0(genome, '/features'))) {
+      types <- infile[[paste0(genome, '/features/feature_type')]][]
+      types.unique <- unique(x = types)
+      if (length(x = types.unique) > 1) {
+        message("Genome ", genome, " has multiple modalities, returning a list of matrices for this genome")
+        sparse.mat <- sapply(
+          X = types.unique,
+          FUN = function(x) {
+            return(sparse.mat[which(x = types == x), ])
+          },
+          simplify = FALSE,
+          USE.NAMES = TRUE
+        )
+      }
+    }
+    output[[genome]] <- sparse.mat
+  }
+  infile$close_all()
+  if (length(x = output) == 1) {
+    return(output[[genome]])
+  } else{
+    return(output)
+  }
+}
+```
+
+## prepare data
+
+```{r}
+cellbender.outputs <- grep("cellbender.output_filtered.h5",list.files("/home/xilab/qiannn/scRNA_Mouse/Cellranger-Outputs",recursive = TRUE,full.names = TRUE),value = TRUE)
+cellbender.outputs
+```
+
+```{r}
+QC.res <- data.frame( CellRanger.H5.path = gsub("cellbender.output_filtered.h5","filtered_feature_bc_matrix.h5",cellbender.outputs),
+                      CellBender.H5.path = cellbender.outputs,
+                      sample.name = basename(gsub("/outs/cellbender.output_filtered.h5","",cellbender.outputs)),
+                      stringsAsFactors = FALSE)
+QC.res
+```
+
+## make statistics
+
+```{r}
+CellRanger.cell.numbers <- c()
+CellBender.cell.numbers <- c()
+Shared.cell.numbers <- c()
+Mean.numbers.of.revised.genes <- c()
+Median.numbers.of.revised.genes <- c()
+
+Revised.value.distribution <- c()
+Top.genes.revised.to.0 <- c()
+
+Top.frequently.revised.genes <- c()
+Top.frequently.revised.genes_cell.counts <- c()
+
+Top.summed.revised.genes <- c()
+Top.summed.revised.genes_cell.counts <- c()
+
+
+Top.mean.revised.genes <- c()
+Top.mean.revised.genes_cell.counts <- c()
+
+for (i in 1:length(cellbender.outputs)) {
+  
+  message("Processing samples: ",QC.res$sample.name[i])
+  
+  cellranger_mat <- Read10X_h5(QC.res$CellRanger.H5.path[i])
+  cellbender_mat <- ReadCB_h5(QC.res$CellBender.H5.path[i])
+  
+  if (all(rownames(cellranger_mat) != rownames(cellbender_mat))) {
+    stop("Error, different rownames between cellranger h5 file and cellbender h5 file!")
+  }
+  
+  CellRanger.cell.numbers <- append(CellRanger.cell.numbers,length(colnames(cellranger_mat)))
+  CellBender.cell.numbers <- append(CellBender.cell.numbers,length(colnames(cellranger_mat)))
+  shared.cells <- intersect(colnames(cellranger_mat),colnames(cellbender_mat))
+  Shared.cell.numbers <- append(Shared.cell.numbers,length(shared.cells))
+  
+  message("Cell number statistics done!")
+  
+  compare.list <- lapply(shared.cells, function(x){
+    return(data.frame(cellranger.old.value = cellranger_mat[cellranger_mat[,x] != cellbender_mat[,x] ,x],
+                      cellbender.new.value = cellbender_mat[cellranger_mat[,x] != cellbender_mat[,x] ,x]))
+    })
+  
+  message("Extract revised genes done!")
+  
+  compare.list <- lapply(compare.list,function(x){ x[,"value.diff"] = x[,1] - x[,2]; return(x) })
+
+  Mean.numbers.of.revised.genes <- append(Mean.numbers.of.revised.genes,round(mean(unlist(lapply(compare.list, function(x){nrow(x)}))),digits = 0))
+  Median.numbers.of.revised.genes <- append(Median.numbers.of.revised.genes,round(median(unlist(lapply(compare.list, function(x){nrow(x)}))),digits = 0))
+
+  # most frequent genes with value from n to 0
+  compare.list.part <- lapply(compare.list,function(x){ x[x[,2] == 0,] })
+  top.genes.revised.to.0 <- sort(table(unlist(lapply(compare.list.part, function(x){rownames(x)}))),decreasing = TRUE)[1:30]
+  Top.genes.revised.to.0 <- append(Top.genes.revised.to.0,paste(paste(names(top.genes.revised.to.0),unname(top.genes.revised.to.0),sep = ":"),collapse = "; "))
+  
+  # distribution of revised value 
+  revised.value.distribution <- paste(paste(names(summary(unlist(lapply(compare.list,function(x){ x[,3] })))),round(unname(summary(unlist(lapply(compare.list,function(x){ x[,3] })))),digits = 3),sep = ":"),collapse = "; ")
+  Revised.value.distribution <- append(Revised.value.distribution,revised.value.distribution) 
+  
+  #  gene level statistics
+  compare.list.part <- lapply(compare.list,function(x){ data.frame(Gene = rownames(x),value = x[,3])} )
+  df <- Reduce(rbind,compare.list.part)
+  gene.counts.value <- df %>%
+    group_by(Gene) %>%
+    summarise(count = n(),value.mean = round(mean(value),digits = 2),value.median = median(value),sum = sum(value)) %>%
+    mutate(Agene.info = paste(Gene,count,value.mean,value.median,sum,sep = ":"))
+  
+  # most frequent revised genes
+  top.frequently.revised.genes <- arrange(gene.counts.value,desc(count))$Gene[1:30]
+  top.frequently.revised.genes_cell.counts <- arrange(gene.counts.value,desc(count))$count[1:30]
+  Top.frequently.revised.genes <- append(Top.frequently.revised.genes,paste(top.frequently.revised.genes,collapse = "; "))
+  Top.frequently.revised.genes_cell.counts <- append(Top.frequently.revised.genes_cell.counts,paste(top.frequently.revised.genes_cell.counts,collapse = "; "))
+  
+  # top summed genes
+  top.summed.revised.genes <- arrange(gene.counts.value,desc(sum))$Gene[1:30]
+  top.summed.revised.genes_cell.counts <- arrange(gene.counts.value,desc(sum))$sum[1:30]
+  Top.summed.revised.genes <- append(Top.summed.revised.genes,paste(top.summed.revised.genes,collapse = "; "))
+  Top.summed.revised.genes_cell.counts <- append(Top.summed.revised.genes_cell.counts,paste(top.summed.revised.genes_cell.counts,collapse = "; "))
+  
+  # top mean revised-value genes
+  top.mean.revised.genes <- arrange(gene.counts.value,desc(value.mean))$Gene[1:30]
+  top.mean.revised.genes_cell.counts <- arrange(gene.counts.value,desc(value.mean))$value.mean[1:30]
+  Top.mean.revised.genes <- append(Top.mean.revised.genes,paste(top.mean.revised.genes,collapse = "; "))
+  Top.mean.revised.genes_cell.counts <- append(Top.mean.revised.genes_cell.counts,paste(top.mean.revised.genes_cell.counts,collapse = "; "))
+}
+
+QC.res$CellRanger.cell.numbers <- CellRanger.cell.numbers
+QC.res$CellBender.cell.numbers <- CellBender.cell.numbers
+QC.res$Shared.cell.numbers <- Shared.cell.numbers
+QC.res$Mean.numbers.of.revised.genes <- Mean.numbers.of.revised.genes
+QC.res$Median.numbers.of.revised.genes <- Median.numbers.of.revised.genes
+QC.res$Revised.value.distribution <- Revised.value.distribution
+QC.res$Top.genes.revised.to.0 <- Top.genes.revised.to.0
+QC.res$Top.frequently.revised.genes <- Top.frequently.revised.genes
+QC.res$Top.frequently.revised.genes_cell.counts <- Top.frequently.revised.genes_cell.counts
+QC.res$Top.summed.revised.genes <- Top.summed.revised.genes
+QC.res$Top.summed.revised.genes_cell.counts <- Top.summed.revised.genes_cell.counts
+QC.res$Top.mean.revised.genes <- Top.mean.revised.genes
+QC.res$Top.mean.revised.genes_cell.counts <- Top.mean.revised.genes_cell.counts
+
+```
+
+```{r}
+library(DT)
+DT::datatable(QC.res[,-c(1:2)])
+```
+
+```{r}
+write.csv(QC.res[,-c(1:2)],file = "CellBender.QC.RESULTS.csv")
+```
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,114 @@
+---
+title: "Step 4.0 Plot Customized Markers in Batch mode"
+author: "Zhang Yongchao"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    number_sections: TRUE
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      collapse = TRUE,
+                      warning = FALSE)
+```
+
+**Method Reference:**
+
+>[Seurat](https://satijalab.org/seurat/)
+
+**Parameters:**
+
+```{r}
+Results.dir <- "./Step4.0-Plot-Markers"
+```
+
+```{r}
+suppressMessages(library(Seurat))
+suppressMessages(library(ggplot2))
+```
+
+# import and merge all samples
+
+```{r}
+AnalysisDirs <- list.dirs("../../Analysis/SingleSample/Cellbender-Seurat-Scrublet",recursive = FALSE,full.names = TRUE)
+rds.files <- list.files(paste(AnalysisDirs,"/3.3-Clean-Cells-Rds",sep = ""),pattern = "rds$",full.names = TRUE)
+basename(rds.files)
+```
+
+```{r}
+obj.list <- lapply(rds.files, function(pbmc){
+  # message("* Processing sample: ",pbmc)
+  cds <- readRDS(pbmc)
+  # message("Project Name is ", cds@project.name)
+  return(cds)
+})
+# obj.list
+```
+
+# Markers
+
+```{r}
+markers <- read.csv("./cell-type-markers-jz.csv",stringsAsFactors = FALSE)
+colnames(markers) <- paste(markers[1,], markers[2,],sep = "_")
+markers <- markers[-c(1,2),]
+# remove columns without gnes
+markers <- markers[,apply(markers == "",2,sum) != nrow(markers)]
+markers
+```
+
+```{r}
+# check markers
+markers.genes <- unname(unlist(markers))
+markers.genes <- markers.genes[markers.genes != ""]
+markers.genes[!markers.genes %in% rownames(obj.list[[1]])]
+markers.genes <- markers.genes[markers.genes %in% rownames(obj.list[[1]])]
+```
+
+# Plot Markers
+
+```{r fig.width=40,fig.height=32}
+
+if ( !dir.exists(Results.dir)) {
+  dir.create(Results.dir)
+}
+
+for (i in 1:length(obj.list)) {
+# for (i in 1) {
+  tmp <- obj.list[[i]]
+  print(paste("Processing sample - ", tmp@project.name,sep = ""))
+  sample.dir <- paste(Results.dir,tmp@project.name,sep = "/")
+  if ( !dir.exists(sample.dir)) {
+  dir.create(sample.dir,recursive = TRUE)
+  }
+  
+  # Plot all genes in a single pdf file
+  # pdf(file = paste(tmp@project.name,".markers.pdf",sep = ""),width = 40,height = 32)
+  # print(FeaturePlot(tmp,markers.genes,ncol = 10, label = TRUE) & NoLegend())
+  # dev.off()
+  
+  # Plot a single gene in a pdf file
+  for (Agene in markers.genes) {
+    pdf(file = paste(sample.dir,"/",Agene,".pdf",sep = ""),width = 7,height = 6)
+    print(FeaturePlot(tmp,Agene,label = TRUE))
+    dev.off()
+  }
+  
+  tiff(filename = paste(sample.dir,"/", tmp@project.name,".tiff",sep = ""),width = 40,height = 32,units = "in",res = 150)
+  print(FeaturePlot(tmp,markers.genes,ncol = 10, label = TRUE) & NoLegend())
+  dev.off()
+  
+  print(FeaturePlot(tmp,markers.genes,ncol = 10, label = TRUE) & NoLegend())
+}
+```
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
+
+

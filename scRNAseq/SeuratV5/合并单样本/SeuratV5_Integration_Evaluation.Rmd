@@ -37,10 +37,12 @@ library(Seurat)
 library(clustree)
 library(ggplot2)
 library(patchwork)
+library(qs2)
 ```
 
 ```{r}
-cds <- readRDS("./merged.rds")
+# cds <- readRDS("./merged.rds")
+cds <- qs_read('merged.qs2')
 ```
 
 # 各方法的不同分辨率的分群一致性
